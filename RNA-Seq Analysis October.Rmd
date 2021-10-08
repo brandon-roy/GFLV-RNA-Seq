@@ -1,0 +1,545 @@
+---
+title: "RNA-Seq Analysis October 2021"
+author: "Brandon Roy"
+date: "9/30/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+library(BiocManager)
+library(DESeq2)
+library(pheatmap)
+library(PCAtools)
+library(tidyverse)
+library(ggplot2)
+library(ggfortify)
+library(goseq)
+library(ggpubr)
+library(tidyr)
+library(dplyr)
+library(WGCNA)
+library(wesanderson)
+library(Rmisc)
+library(grid)
+library(gridExtra)
+library(lemon)
+library(purrr)
+library(rnaseqGene)
+library(IHW)
+library(ggrepel)
+library(multiClust) # generating hierarchal clustering
+library(glmGamPoi)
+```
+
+```{r Gene Counting from individual files, eval=FALSE, include=FALSE}
+#import necessary files
+metadata <- read.table("Sample_metadata.txt", header = TRUE)
+
+# assemble gene counts from featureCounts into single matrix
+library(purrr)
+f_files<- list.files("./5.GeneCount", full.names = T)
+print(f_files)
+read_in_feature_counts<- function(file){
+  cnt<- read_tsv(file, col_names=T, comment='#')
+  cnt<- cnt %>% dplyr::select(-Chr, -Start, -End, -Strand, -Length)
+  return(cnt)
+}
+raw_counts<- map(f_files, read_in_feature_counts)
+raw_counts_df<- purrr::reduce(raw_counts,inner_join)
+
+# all counts are in one matrix and can be manipulated
+# write to file
+write.table(raw_counts_df, file = "geneCount.txt", row.names = F, col.names = F)
+raw_counts_df <- read.table(file= "geneCount.txt")
+```
+# All files must be read in and assigned for input into DESeq2 analysis
+# Assign column names to correct variable and type()
+# Ensure that rows of coldata and columns of countdata match correctly!
+```{r}
+# Assign files
+matrixFile <- "geneCount.txt"
+sampleFile <- "Sample_metadata.txt"
+
+#Input file manipulation
+originalmatrixFile <- read.delim(matrixFile,header=FALSE,sep = " ")
+cleanedmatrixFile <- originalmatrixFile[!duplicated(originalmatrixFile$V1), ]
+cts <- data.frame(cleanedmatrixFile[,-1], row.names=cleanedmatrixFile[,1])
+
+coldata <- read.delim("Sample_metadata.txt", sep='\t',row.names=1,header=TRUE )
+colnames(cts) <- rownames(coldata)
+
+#Test whether rownames of coldata match colnames of cts
+all(rownames(coldata) == colnames(cts)) #should return true
+
+# Adding a column 'group' to represent interaction of treatment*time:
+coldata$group <- factor(paste0(coldata$Treatment, coldata$Time))
+
+#Set up factor type for everything except time:
+coldata$Time <- as.factor(coldata$Time)
+coldata$Treatment <- as.factor(coldata$Treatment)
+coldata$Control <- as.factor(coldata$Control)
+coldata$F13Mut <- as.factor(coldata$F13Mut)
+coldata$F13 <- as.factor(coldata$F13)
+coldata$GHuMut <- as.factor(coldata$GHuMut)
+coldata$GHu <- as.factor(coldata$GHu)
+coldata$X12_day <- as.factor(coldata$X12_day)
+coldata$X7_day <- as.factor(coldata$X7_day)
+coldata$X4_day <- as.factor(coldata$X4_day)
+coldata$Symptoms <- as.factor(coldata$Symptoms)
+coldata$group <- as.factor(coldata$group)
+```
+
+## Annotation of genes
+https://github.com/kevinblighe/PCAtools
+
+ens <- rownames(airway)
+
+library(org.Hs.eg.db)
+symbols <- mapIds(org.Hs.eg.db, keys = ens,
+  column = c('SYMBOL'), keytype = 'ENSEMBL')
+symbols <- symbols[!is.na(symbols)]
+symbols <- symbols[match(rownames(airway), names(symbols))]
+rownames(airway) <- symbols
+keep <- !is.na(rownames(airway))
+airway <- airway[keep,]
+
+
+
+
+
+# Construction of model with 59814 genes
+# Filtering for low counts returns 31396 genes
+# Transform counts
+
+```{r, eval=T}
+# Deseq2 model construction: (design = ~ Treatment + Time + Interaction)
+dds <- DESeqDataSetFromMatrix(countData = cts, colData = coldata, design = ~ Treatment + Time + Treatment:Time)
+keep <- rowSums(counts(dds)) >= 75
+dds <- dds[keep,]
+
+# Releveling
+dds$group <- relevel(dds$group, ref = "Control7")
+
+# Run DeSeq2
+dds_out <- DESeq(dds)
+print("Group comparison outputs of DESeq2 model:")
+print(resultsNames(dds_out))
+print("Dispersion Estimates of Counts")
+plotDispEsts(dds_out)
+
+# Transformation
+
+vsd <- vst(dds_out, blind=FALSE, fitType='local')
+cts_vst <- assay(vsd)
+cts_vst <- as.data.frame(t(cts_vst))
+datExpr0 <- as.matrix(cts_vst)
+```
+
+# PCA plot
+```{r}
+p <- pca(vst,removeVar=0.1)
+
+# PCA Plot for grouping
+p <- plotPCA(vsd, intgroup = "Time", ntop=100) # The symptomatic GHu separates well from other treatments at 7dpi, but the components created cannot attribute much to the other treatments
+ggplot(data=p, mapping = aes('PC1', 'PC2'))
+View(p)
+plotPCA(DESeqTransform(vsd),intgroup="group")
+# Store results 
+res <- results(dds_out)
+summary(results(dds_out))
+
+#df <- dat[1:4]
+#pca_res <- prcomp(datExpr0,scale. = F)
+#autoplot(pca_res, data = coldata, colour = 'Treatment', shape = "Time", loadings=TRUE)
+
+#autoplot(kmeans(datExpr0,4), data=coldata)
+
+```
+
+```{r}
+
+
+
+```
+
+```{r, eval=FALSE, echo=FALSE}
+# Output for Gene Set Enrichment Analysis (GSEA)
+norm_counts <- counts(dds_out, normalized = T)
+norm_counts <- as.data.frame(norm_counts)
+names <- rownames(norm_counts)
+norm_counts$description <- names
+norm_counts <- norm_counts %>% relocate(description, .before = `12f13mut1.sorted.bam`)
+write.table(norm_counts, "normalized_counts.gct", sep = "\t", quote = F, row.names = F)
+print("DONE: file has been exported as 'normalized_counts.gct'.")
+```
+
+# Hierarchal clustering of samples, using weighted pair method
+```{r}
+# Dendrogram for cluster sampling and detecting outliers
+sampleTree <- hclust(dist(datExpr0), method = "mcquitty") # This method seems to group the data the best, weighted pair cluster analysis
+plot(sampleTree, main= "Sample Cluster Dendrogram for GFLV infected N. benthamiana")
+
+plot(as.dendrogram(sampleTree)) +
+  rect.hclust(sampleTree,h=95)
+plot(sampleTree, main = "Sample clustering to detect outliers", sub="",xlab=" ",
+     cex.axis = 2, cex = 1.5,font.axis = 2,cex.main = 2.5,font.lab =2, cex.lab = 3,ylab = "Height", hang = 0.1, lwd = 2.5, lend = 'round')
+
+data.exprs <- cts
+
+ranked.exprs <- probe_ranking(input=matrixFile,
+    probe_number=300, 
+    probe_num_selection="Fixed_Probe_Num",
+    data.exp=data.exprs, 
+    method="SD_Rank")
+
+hclust_analysis <- cluster_analysis(sel.exp=ranked.exprs,
+    cluster_type="HClust",
+    distance="euclidean", linkage_type="mcquitty", 
+    gene_distance="correlation",
+    num_clusters=3, data_name="Analysis", 
+    probe_rank="SD_Rank", probe_num_selection="Fixed_Probe_Num",
+    cluster_num_selection="Fixed_Clust_Num")
+
+meanSdPlot(dds,ranks=FALSE)
+
+```
+
+### Contrasting different treatments and time points allow for hypothesis led testing of DEGs.
+
+# Hypothesis 1: Recovery of GHu WT is due to an immune response of the host recognizing the viral infection and thereby upregulates RNA silencing pathways. 
+
+```{r}
+
+summary(results(dds_out, contrast =list(c("Treatmentghu_wt.Time7","Treatmentghu_mut.Time7")), test="Wald"))
+summary(results(dds_out, contrast =list(c("Treatmentghu_wt.Time12","Treatmentghu_mut.Time12")), test="Wald"))
+
+resultsNames(dds_out)
+par(mar=c(5,5,5,5), cex=1.0, cex.main=1.4, cex.axis=1.4, cex.lab=1.4)
+
+topT <- as.data.frame(res)
+
+#Adjusted P values (FDR Q values)
+with(topT, plot(log2FoldChange, -log10(padj), pch=20, main="Volcano plot", cex=1.0, xlab=bquote(~Log[2]~fold~change), ylab=bquote(~-log[10]~Q~value)))
+
+with(subset(topT, padj<0.05 & abs(log2FoldChange)>2), points(log2FoldChange, -log10(padj), pch=20, col="red", cex=0.5))
+
+with(subset(topT, padj<0.05 & abs(log2FoldChange)>2), text(log2FoldChange, -log10(padj), labels=subset(rownames(topT), topT$padj<0.05 & abs(topT$log2FoldChange)>2), cex=0.8, pos=3))
+
+#Add lines for absolute FC>2 and P-value cut-off at FDR Q<0.05
+abline(v=0, col="black", lty=3, lwd=1.0)
+abline(v=-2, col="black", lty=4, lwd=2.0)
+abline(v=2, col="black", lty=4, lwd=2.0)
+abline(h=-log10(max(topT$pvalue[topT$padj<0.05], na.rm=TRUE)), col="black", lty=4, lwd=2.0)
+
+```
+
+
+
+
+
+```{r}
+vsd_out <- vst(dds_out,blind=F)
+plotPCA(vsd_out, intgroup = "Treatment", returnData=F)
+
+resultsNames(dds_out)
+# To test this, we look at the DEGs between GHu WT and GHu Mutant at 7 days post inoculation.
+summary(results(dds_out, contrast =c("group","ghu_wt7","ghu_mut7"),alpha=0.05))
+dds_out$Treatment
+par(mfrow=c(1,1))
+# resultsNames(dds_i_out)
+ghuwtvsmut7 <- data.frame(results(dds_out, contrast=c("group", "ghu_wt7", "ghu_mut7"),alpha=0.01))
+
+View(ghuwtvsmut7)
+
+ghuwtvsmut <- data.frame(results(dds_out,contrast=c("Treatment","ghu_wt","ghu_mut")))
+
+ggplot(data=ghuwtvsmut7, aes(x=log2FoldChange, y=-log10(padj), col=ghuwtvsmut7$diffexpressed, label=ghuwtvsmut7$delabel)) + 
+    geom_point() + 
+    theme_minimal()
+
+with(ghuwtvsmut7, plot(log2FoldChange, -log10(pvalue), pch=20, main="Volcano plot", xlim=c(-5,6), ylim=c(0,40)))+
+  with(subset(ghuwtvsmut7, pvalue<.05 ), points(log2FoldChange, -log10(pvalue), pch=20, col="light blue"))+
+  with(subset(ghuwtvsmut7, abs(log2FoldChange)>1), points(log2FoldChange, -log10(pvalue), pch=20, col="gray"))+
+  with(subset(ghuwtvsmut7, pvalue<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(pvalue), pch=20, col="light green")) 
+
+```
+
+
+# Label points with the textxy function from the calibrate plot
+library(calibrate)
+with(subset(res, padj<.05 & abs(log2FoldChange)>1), textxy(log2FoldChange, -log10(pvalue), labs=Gene, cex=.8))
+
+
+```{r}
+
+p <- ggplot(data=ghuwtvsmut, aes(x=log2FoldChange, y=pvalue)) + geom_point() + theme_minimal()
+p2 <- p + geom_vline(xintercept=c(-2,2), col="red") + geom_hline(yintercept=-log10(0.01),col="red")
+ghuwtvsmut$diffexpressed <- "NO"
+ghuwtvsmut$diffexpressed[ghuwtvsmut$log2FoldChange > 2 & ghuwtvsmut$pvalue < 0.01] <- "UP"
+head(ghuwtvsmut)
+# if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"
+ghuwtvsmut$diffexpressed[ghuwtvsmut$log2FoldChange < -2 & ghuwtvsmut$pvalue < 0.01] <- "DOWN"
+p <- ggplot(data=ghuwtvsmut, aes(x=log2FoldChange, y=-log10(pvalue), col=diffexpressed)) + geom_point() + theme_minimal()
+p2 <- p + geom_vline(xintercept=c(-2, 2), col="red") + geom_hline(yintercept=-log10(0.01), col="red")
+p3 <- p2 + scale_color_manual(values=c("blue", "black", "red"))
+
+mycolors <- c("blue", "red", "black")
+names(mycolors) <- c("DOWN", "UP", "NO")
+p3 <- p2 + scale_colour_manual(values = mycolors)
+
+ghuwtvsmut$delabel <- NA
+ghuwtvsmut$delabel[ghuwtvsmut$diffexpressed != "NO"] <- ghuwtvsmut$gene_symbol[ghuwtvsmut$diffexpressed != "NO"]
+
+ggplot(data=ghuwtvsmut, aes(x=log2FoldChange, y=-log10(pvalue), col=ghuwtvsmut$diffexpressed, label=ghuwtvsmut$delabel)) +
+        geom_point() + 
+        ggtitle("GHu Wild Type vs GHu Mutant K802G, 7DPI") +
+        theme_minimal() +
+        geom_text_repel() +
+        scale_color_manual(values=c("violet", "black", "lightgreen")) +
+        geom_vline(xintercept=c(-2, 2), col="gray") +
+        geom_hline(yintercept=-log10(0.01), col="gray")
+
+cts_vst_i 
+
+redVar7 <- lfcShrink(dds_out_interaction,contrast=c("group","ghu_mut7","ghu_wt7"),alpha=0.01,type='normal')
+topVarGenes7 <- head(order(rowVars(assay(redVar7)),decreasing=T),25)
+top25Counts7 <-assay(redVar7)[topVarGenes7,]
+
+```
+
+# Hypothesis 2: Development of symptoms is unique to GHu Wild Type due to the amino acid present at 1EPol 802. Compare the 4dpi to see how the host is responding differently to viral infection for GHu WT and other strains.
+
+```{r}
+
+par(mfrow=c(1,1))
+EnhancedVolcano(ghuwtvsmut7,lab=rownames(ghuwtvsmut7),x='log2FoldChange',y='pvalue') 
+with(ghu_effected_gene, plot(log2FoldChange, -log10(pvalue), pch=20, main="GHu WT vs Mutant 7 DPI",subtitle=F, xlim=c(-3,3)))
+
+
+
+ghuwtvsmut4 <- data.frame(results(dds_out_interaction, contrast=c("group", "ghu_wt4", "ghu_mut4"),alpha=0.05))
+
+volcanoplot(ghuwtvsmut4, highlight=5, names=rowNames(ghuwtvsmut4), xlab=log2FoldChange)
+
+
+View(ghuwtvsmut4)
+
+p4 <- ggplot(data=ghuwtvsmut4, aes(x=log2FoldChange, y=padj)) + geom_point() + theme_minimal()
+p24 <- p4 + geom_vline(xintercept=c(-2,2), col="red") + geom_hline(yintercept=-log10(0.01),col="red")
+ghuwtvsmut4$diffexpressed <- "NO"
+ghuwtvsmut4$diffexpressed[ghuwtvsmut4$log2FoldChange > 2 & ghuwtvsmut4$padj < 0.01] <- "UP"
+
+# if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"
+ghuwtvsmut4$diffexpressed[ghuwtvsmut4$log2FoldChange < -2 & ghuwtvsmut4$padj < 0.01] <- "DOWN"
+p4 <- ggplot(data=ghuwtvsmut4, aes(x=log2FoldChange, y=-log10(padj), col=diffexpressed)) + geom_point() + theme_minimal()
+p24 <- p4 + geom_vline(xintercept=c(-2, 2), col="red") + geom_hline(yintercept=-log10(0.01), col="red")
+p34 <- p24 + scale_color_manual(values=c("blue", "black", "red"))
+mycolors <- c("blue", "red", "black")
+names(mycolors) <- c("DOWN", "UP", "NO")
+p34 <- p24 + scale_colour_manual(values = mycolors)
+ghuwtvsmut4$delabel <- NA
+ghuwtvsmut4$delabel[ghuwtvsmut4$diffexpressed != "NO"] <-  ghuwtvsmut4$gene_symbol[ghuwtvsmut4$diffexpressed != "NO"]
+
+dpi4plot <- ggplot(data=ghuwtvsmut4, aes(x=log2FoldChange, y=-log10(padj), col=ghuwtvsmut4$diffexpressed, label=ghuwtvsmut4$delabel)) +
+        geom_point() + 
+        ggtitle("GHu Wild Type vs GHu Mutant K802G, 4DPI") +
+        theme_minimal() +
+        geom_text_repel() +
+        scale_color_manual(values=c("violet", "gray", "green")) +
+        geom_vline(xintercept=c(-2, 2), col="gray") +
+        geom_hline(yintercept=-log10(0.01), col="gray")
+
+plot(dpi4plot)
+
+```
+
+# Further hypothesis testing can be accomplished by examining the top genes rated for pvalue and log2foldchange and creating count plots of gene reads. 
+
+```{r}
+
+par(mfrow=c(1,1))
+d <- plotCounts(dds_out, gene = "Niben101Scf01478g00014", intgroup="group", returnData=T)
+
+ggplot(d, aes(x=group, y=count, color=group))+
+  geom_point(position=position_jitter(w=0.1,h=0))+
+  geom_text_repel(aes(label=rownames(d)))+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  geom_beeswarm(cex=1)
+  
+View(dds_out$group)
+```
+
+
+```{r}
+
+summary(results(dds_out_interaction, contrast =c("group","ghu_mut7","ghu_wt7"),alpha=0.05))
+
+ghuwtvsmut4 <- data.frame(results(dds_out, contrast=c("group", "ghu_wt4", "ghu_mut4"),alpha=0.05))
+
+with(ghuwtvsmut4, plot(log2FoldChange, -log10(padj), pch=20, main="Volcano plot", xlim=c(-5,6)))+
+  with(subset(ghuwtvsmut4, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(ghuwtvsmut4, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(ghuwtvsmut4, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green")) 
+
+ghuwtvsmut7 <- data.frame(results(dds_out_interaction, contrast=c("group", "ghu_wt7", "ghu_mut7"),alpha=0.05))
+ghuwtvsmut12 <- data.frame(results(dds_out_interaction, contrast=c("group", "ghu_wt12", "ghu_mut12"),alpha=0.05))
+
+ggplot(data=ghuwtvsmut7, aes(x=log2FoldChange, y=-log10(pvalue), col=ghuwtvsmut$diffexpressed, label=ghuwtvsmut$delabel)) +
+        geom_point() + 
+        ggtitle("GHu Wild Type vs GHu Mutant K802G, 7DPI") +
+        theme_minimal() +
+        geom_text_repel() +
+        scale_color_manual(values=c("violet", "black", "lightgreen")) +
+        geom_vline(xintercept=c(-2, 2), col="gray") +
+        geom_hline(yintercept=-log10(0.01), col="gray")
+
+f13wtvsmut4 <- data.frame(results(dds_out_interaction, contrast=c("group", "f13_wt4", "f13_mut4"),alpha=0.05))
+f13wtvsmut7 <- data.frame(results(dds_out_interaction, contrast=c("group", "f13_wt7", "f13_mut7"),alpha=0.05))
+f13wtvsmut12 <- data.frame(results(dds_out_interaction, contrast=c("group", "f13_wt12", "f13_mut12"),alpha=0.05))
+
+summary(results(dds_out_interaction, contrast =c("group","ghu_mut4","f13_wt4"),alpha=0.05))
+summary(results(dds_out_interaction, contrast =c("group","ghu_mut7","f13_wt7"),alpha=0.05))
+summary(results(dds_out_interaction, contrast =c("group","ghu_mut12","f13_wt12"),alpha=0.05))
+
+summary(results(dds_out_interaction, contrast =c("group","ghu_wt4","f13_mut4"),alpha=0.05))
+summary(results(dds_out_interaction, contrast =c("group","ghu_wt7","f13_mut7"),alpha=0.05))
+summary(results(dds_out_interaction, contrast =c("group","ghu_wt12","f13_mut12"),alpha=0.05))
+
+```
+
+
+```{r}
+
+
+
+```
+
+# Network analysis with WGCNA
+```{r}
+
+table(net$colors)
+mergedColors = labels2colors(net$colors)
+table(mergedColors)
+
+moduleLabels = net$colors
+moduleColors = labels2colors(net$colors)
+MEs = net$MEs;
+head(MEs)
+
+geneTree = net$dendrograms[[1]];
+save(MEs, moduleLabels, moduleColors, geneTree,
+     file = "unsupervise-02-networkConstruction-auto_n50=.RData")
+
+#Check eigengenes
+MEs0 = moduleEigengenes(datExpr, moduleColors)$eigengenes
+MEs = orderMEs(MEs0)
+
+modNames = substring(names(MEs), 3)
+view(modNames)
+
+nGenes = ncol(datExpr)
+nSamples = nrow(datExpr)
+
+view(MEs)
+
+moduleTraitCor = cor(MEs, datTraits, use = "p")
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamples)
+
+view(moduleTraitCor)
+
+# Will display correlations and their p-values
+textMatrix = paste(signif(moduleTraitCor, 2), "\n(",
+                   signif(moduleTraitPvalue, 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor)
+
+# Module_trait relationships
+
+tiff('Module_trait relationships.tiff', units="in", width=4, height=6, res=1000, compression = 'lzw')
+par(mar = c(4,6, 4, 1))
+labeledHeatmap(Matrix = moduleTraitCor,
+               xLabels = c("Time","Treatment", "Rep"),
+               ySymbols = names(MEs),
+               yLabels = names(MEs),
+               colorLabels = FALSE,
+               colors =  blueWhiteRed(100),
+               setStdMargins = FALSE,
+               cex.text = 0.5,
+               textMatrix = textMatrix,
+               zlim = c(-1,1),
+               main = paste("Module-trait relationships"),
+               cex.lab.x = 0.7,
+               cex.lab.y = 0.5,
+               xLabelsAngle = 30,
+               xLabelsPosition = "bottom",
+               xLabelsAdj = 0.7)
+
+dev.off()
+
+```
+
+
+
+
+
+# For treatment*time, with low gene count filtering:
+dds_interaction <- DESeqDataSetFromMatrix(countData = cts, colData = coldata, design = ~ group)
+keep_i <- rowSums(counts(dds_interaction)) >= (ncol(cts))
+dds_i <- dds[keep_i,]
+dds_i_out <- DESeq(dds_i)
+# resultsNames(dds_i_out) # [1] Intercept [2] F13Mut vs Control [3] F13WT vs Control [4] GHuMut vs Control [5] GHuWT vs Control [6] Time
+
+vsd_interaction <- vst(dds_i_out,blind=FALSE)
+cts_vst_i <- assay(vsd_interaction)
+cts_vst_i <- as.data.frame(t(cts_vst_i))
+datExpr0 <- as.matrix(cts_vst_i)
+
+plotPCA(vsd_interaction, intgroup = "Symptoms", returnData=F)
+
+# Modeling read counts through a negative binomial
+```{r}
+
+dds.norm <- estimateSizeFactors(dds)
+sizeFactors(dds.norm)
+all(round(estimSf(dds),6) == round(sizeFactors(dds.norm), 6))
+dds.disp <- estimateDispersions(dds_out)
+
+boxplot(log2(counts(dds.norm)+epsilon), cex.axis=0.7, 
+        las=1, xlab="log2(counts)", horizontal=TRUE, main="Raw counts")
+boxplot(log2(counts(dds.norm, normalized=TRUE)+epsilon), cex.axis=0.7, 
+        las=1, xlab="log2(normalized counts)", horizontal=TRUE, main="Normalized counts") 
+plotDensity(log2(counts(dds.norm, normalized=TRUE)+epsilon), 
+            xlab="log2(normalized counts)", cex.lab=0.7, panel.first=grid())
+
+
+## Computing mean and variance
+norm.counts <- counts(dds.norm, normalized=TRUE)
+mean.counts <- rowMeans(norm.counts)
+variance.counts <- apply(norm.counts, 1, var)
+
+## sum(mean.counts==0) # Number of completely undetected genes
+
+norm.counts.stats <- data.frame(
+  min=apply(norm.counts, 2, min),
+  mean=apply(norm.counts, 2, mean),
+  median=apply(norm.counts, 2, median),
+  max=apply(norm.counts, 2, max),
+  zeros=apply(norm.counts==0, 2, sum),
+  percent.zeros=100*apply(norm.counts==0, 2, sum)/nrow(norm.counts),
+  perc05=apply(norm.counts, 2, quantile, 0.05),
+  perc10=apply(norm.counts, 2, quantile, 0.10),
+  perc90=apply(norm.counts, 2, quantile, 0.90),
+  perc95=apply(norm.counts, 2, quantile, 0.95)
+)
+
+kable(norm.counts.stats)
+
+mean.var.col <- densCols(x=log2(mean.counts), y=log2(variance.counts))
+plot(x=log2(mean.counts), y=log2(variance.counts), pch=16, cex=0.5, 
+     col=mean.var.col, main="Mean-variance relationship",
+     xlab="Mean log2(normalized counts) per gene",
+     ylab="Variance of log2(normalized counts)",
+     panel.first = grid()) +
+abline(a=0, b=1, col="brown")
+```
+

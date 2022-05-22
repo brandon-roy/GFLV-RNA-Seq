@@ -1,0 +1,308 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2580
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww24180\viewh8700\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 hisat2 -p 10 -x nepo3 -U 4f13mut1.trimmed.fastq.gz -S 4f13mut1.v.sam\
+samtools view -S -b 4f13mut1.v.sam > 4f13mut1.v.bam\
+samtools sort 4f13mut1.v.bam -o 4f13mut1.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4f13mut2.trimmed.fastq.gz -S 4f13mut2.v.sam\
+samtools view -S -b 4f13mut2.v.sam > 4f13mut2.v.bam\
+samtools sort 4f13mut2.v.bam -o 4f13mut2.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4f13mut3.trimmed.fastq.gz -S 4f13mut3.v.sam\
+samtools view -S -b 4f13mut3.v.sam > 4f13mut3.v.bam\
+samtools sort 4f13mut3.v.bam -o 4f13mut3.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4f13mut4.trimmed.fastq.gz -S 4f13mut4.v.sam\
+samtools view -S -b 4f13mut4.v.sam > 4f13mut4.v.bam\
+samtools sort 4f13mut4.v.bam -o 4f13mut4.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4f13mut5.trimmed.fastq.gz -S 4f13mut5.v.sam\
+samtools view -S -b 4f13mut5.v.sam > 4f13mut5.v.bam\
+samtools sort 4f13mut5.v.bam -o 4f13mut5.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4f13wt1.trimmed.fastq.gz -S 4f13wt1.v.sam\
+samtools view -S -b 4f13wt1.v.sam > 4f13wt1.v.bam\
+samtools sort 4f13wt1.v.bam -o 4f13wt1.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4f13wt2.trimmed.fastq.gz -S 4f13wt2.v.sam\
+samtools view -S -b 4f13wt2.v.sam > 4f13wt2.v.bam\
+samtools sort 4f13wt2.v.bam -o 4f13wt2.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4f13wt3.trimmed.fastq.gz -S 4f13wt3.v.sam\
+samtools view -S -b 4f13wt3.v.sam > 4f13wt3.v.bam\
+samtools sort 4f13wt3.v.bam -o 4f13wt3.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4f13wt4.trimmed.fastq.gz -S 4f13wt4.v.sam\
+samtools view -S -b 4f13wt4.v.sam > 4f13wt4.v.bam\
+samtools sort 4f13wt4.v.bam -o 4f13wt4.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4f13wt5.trimmed.fastq.gz -S 4f13wt5.v.sam\
+samtools view -S -b 4f13wt5.v.sam > 4f13wt5.v.bam\
+samtools sort 4f13wt5.v.bam -o 4f13wt5.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4ghumut1.trimmed.fastq.gz -S 4ghumut1.v.sam\
+samtools view -S -b 4ghumut1.v.sam > 4ghumut1.v.bam\
+samtools sort 4ghumut1.v.bam -o 4ghumut1.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4ghumut2.trimmed.fastq.gz -S 4ghumut2.v.sam\
+samtools view -S -b 4ghumut2.v.sam > 4ghumut2.v.bam\
+samtools sort 4ghumut2.v.bam -o 4ghumut2.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4ghumut3.trimmed.fastq.gz -S 4ghumut3.v.sam\
+samtools view -S -b 4ghumut3.v.sam > 4ghumut3.v.bam\
+samtools sort 4ghumut3.v.bam -o 4ghumut3.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4ghumut4.trimmed.fastq.gz -S 4ghumut4.v.sam\
+samtools view -S -b 4ghumut4.v.sam > 4ghumut4.v.bam\
+samtools sort 4ghumut4.v.bam -o 4ghumut4.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4ghumut5.trimmed.fastq.gz -S 4ghumut5.v.sam\
+samtools view -S -b 4ghumut5.v.sam > 4ghumut5.v.bam\
+samtools sort 4ghumut5.v.bam -o 4ghumut5.sorted.v.bam\
+featureCounts -t gene -g ID -a fanleaf_annotation.gene_models.gff -o 4ghumut5v 4ghumut5.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4ghuwt1.trimmed.fastq.gz -S 4ghuwt1.v.sam\
+samtools view -S -b 4ghuwt1.v.sam > 4ghuwt1.v.bam\
+samtools sort 4ghuwt1.v.bam -o 4ghuwt1.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4ghuwt2.trimmed.fastq.gz -S 4ghuwt2.v.sam\
+samtools view -S -b 4ghuwt2.v.sam > 4ghuwt2.v.bam\
+samtools sort 4ghuwt2.v.bam -o 4ghuwt2.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4ghuwt3.trimmed.fastq.gz -S 4ghuwt3.v.sam\
+samtools view -S -b 4ghuwt3.v.sam > 4ghuwt3.v.bam\
+samtools sort 4ghuwt3.v.bam -o 4ghuwt3.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4ghuwt4.trimmed.fastq.gz -S 4ghuwt4.v.sam\
+samtools view -S -b 4ghuwt4.v.sam > 4ghuwt4.v.bam\
+samtools sort 4ghuwt4.v.bam -o 4ghuwt4.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4ghuwt5.trimmed.fastq.gz -S 4ghuwt5.v.sam\
+samtools view -S -b 4ghuwt5.v.sam > 4ghuwt5.v.bam\
+samtools sort 4ghuwt5.v.bam -o 4ghuwt5.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4mock1.trimmed.fastq.gz -S 4mock1.v.sam\
+samtools view -S -b 4mock1.v.sam > 4mock1.v.bam\
+samtools sort 4mock1.v.bam -o 4mock1.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4mock2.trimmed.fastq.gz -S 4mock2.v.sam\
+samtools view -S -b 4mock2.v.sam > 4mock2.v.bam\
+samtools sort 4mock2.v.bam -o 4mock2.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4mock3.trimmed.fastq.gz -S 4mock3.v.sam\
+samtools view -S -b 4mock3.v.sam > 4mock3.v.bam\
+samtools sort 4mock3.v.bam -o 4mock3.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4mock4.trimmed.fastq.gz -S 4mock4.v.sam\
+samtools view -S -b 4mock4.v.sam > 4mock4.v.bam\
+samtools sort 4mock4.v.bam -o 4mock4.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 4mock5.trimmed.fastq.gz -S 4mock5.v.sam\
+samtools view -S -b 4mock5.v.sam > 4mock5.v.bam\
+samtools sort 4mock5.v.bam -o 4mock5.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7f13mut1.trimmed.fastq.gz -S 7f13mut1.v.sam\
+samtools view -S -b 7f13mut1.v.sam > 7f13mut1.v.bam\
+samtools sort 7f13mut1.v.bam -o 7f13mut1.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7f13mut2.trimmed.fastq.gz -S 7f13mut2.v.sam\
+samtools view -S -b 7f13mut2.v.sam > 7f13mut2.v.bam\
+samtools sort 7f13mut2.v.bam -o 7f13mut2.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo4 -U 7f13mut3.trimmed.fastq.gz -S 7f13mut3.v.sam\
+samtools view -S -b 7f13mut3.v.sam > 7f13mut3.v.bam\
+samtools sort 7f13mut3.v.bam -o 7f13mut3.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7f13mut4.trimmed.fastq.gz -S 7f13mut4.v.sam\
+samtools view -S -b 7f13mut4.v.sam > 7f13mut4.v.bam\
+samtools sort 7f13mut4.v.bam -o 7f13mut4.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7f13mut5.trimmed.fastq.gz -S 7f13mut5.v.sam\
+samtools view -S -b 7f13mut5.v.sam > 7f13mut5.v.bam\
+samtools sort 7f13mut5.v.bam -o 7f13mut5.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7f13wt1.trimmed.fastq.gz -S 7f13wt1.v.sam\
+samtools view -S -b 7f13wt1.v.sam > 7f13wt1.v.bam\
+samtools sort 7f13wt1.v.bam -o 7f13wt1.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7f13wt2.trimmed.fastq.gz -S 7f13wt2.v.sam\
+samtools view -S -b 7f13wt2.v.sam > 7f13wt2.v.bam\
+samtools sort 7f13wt2.v.bam -o 7f13wt2.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7f13wt3.trimmed.fastq.gz -S 7f13wt3.v.sam\
+samtools view -S -b 7f13wt3.v.sam > 7f13wt3.v.bam\
+samtools sort 7f13wt3.v.bam -o 7f13wt3.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7f13wt4.trimmed.fastq.gz -S 7f13wt4.v.sam\
+samtools view -S -b 7f13wt4.v.sam > 7f13wt4.v.bam\
+samtools sort 7f13wt4.v.bam -o 7f13wt4.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7f13wt5.trimmed.fastq.gz -S 7f13wt5.v.sam\
+samtools view -S -b 7f13wt5.v.sam > 7f13wt5.v.bam\
+samtools sort 7f13wt5.v.bam -o 7f13wt5.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7ghumut1.trimmed.fastq.gz -S 7ghumut1.v.sam\
+samtools view -S -b 7ghumut1.v.sam > 7ghumut1.v.bam\
+samtools sort 7ghumut1.v.bam -o 7ghumut1.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7ghumut2.trimmed.fastq.gz -S 7ghumut2.v.sam\
+samtools view -S -b 7ghumut2.v.sam > 7ghumut2.v.bam\
+samtools sort 7ghumut2.v.bam -o 7ghumut2.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7ghumut3.trimmed.fastq.gz -S 7ghumut3.v.sam\
+samtools view -S -b 7ghumut3.v.sam > 7ghumut3.v.bam\
+samtools sort 7ghumut3.v.bam -o 7ghumut3.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7ghumut4.trimmed.fastq.gz -S 7ghumut4.v.sam\
+samtools view -S -b 7ghumut4.v.sam > 7ghumut4.v.bam\
+samtools sort 7ghumut4.v.bam -o 7ghumut4.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7ghumut5.trimmed.fastq.gz -S 7ghumut5.v.sam\
+samtools view -S -b 7ghumut5.v.sam > 7ghumut5.v.bam\
+samtools sort 7ghumut5.v.bam -o 7ghumut5.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7ghuwt1.trimmed.fastq.gz -S 7ghuwt1.v.sam\
+samtools view -S -b 7ghuwt1.v.sam > 7ghuwt1.v.bam\
+samtools sort 7ghuwt1.v.bam -o 7ghuwt1.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7ghuwt2.trimmed.fastq.gz -S 7ghuwt2.v.sam\
+samtools view -S -b 7ghuwt2.v.sam > 7ghuwt2.v.bam\
+samtools sort 7ghuwt2.v.bam -o 7ghuwt2.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7ghuwt3.trimmed.fastq.gz -S 7ghuwt3.v.sam\
+samtools view -S -b 7ghuwt3.v.sam > 7ghuwt3.v.bam\
+samtools sort 7ghuwt3.v.bam -o 7ghuwt3.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7ghuwt4.trimmed.fastq.gz -S 7ghuwt4.v.sam\
+samtools view -S -b 7ghuwt4.v.sam > 7ghuwt4.v.bam\
+samtools sort 7ghuwt4.v.bam -o 7ghuwt4.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7ghuwt5.trimmed.fastq.gz -S 7ghuwt5.v.sam\
+samtools view -S -b 7ghuwt5.v.sam > 7ghuwt5.v.bam\
+samtools sort 7ghuwt5.v.bam -o 7ghuwt5.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7mock1.trimmed.fastq.gz -S 7mock1.v.sam\
+samtools view -S -b 7mock1.v.sam > 7mock1.v.bam\
+samtools sort 7mock1.v.bam -o 7mock1.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7mock2.trimmed.fastq.gz -S 7mock2.v.sam\
+samtools view -S -b 7mock2.v.sam > 7mock2.v.bam\
+samtools sort 7mock2.v.bam -o 7mock2.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7mock3.trimmed.fastq.gz -S 7mock3.v.sam\
+samtools view -S -b 7mock3.v.sam > 7mock3.v.bam\
+samtools sort 7mock3.v.bam -o 7mock3.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7mock4.trimmed.fastq.gz -S 7mock4.v.sam\
+samtools view -S -b 7mock4.v.sam > 7mock4.v.bam\
+samtools sort 7mock4.v.bam -o 7mock4.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 7mock5.trimmed.fastq.gz -S 7mock5.v.sam\
+samtools view -S -b 7mock5.v.sam > 7mock5.v.bam\
+samtools sort 7mock5.v.bam -o 7mock5.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12f13mut1.trimmed.fastq.gz -S 12f13mut1.v.sam\
+samtools view -S -b 12f13mut1.v.sam > 12f13mut1.v.bam\
+samtools sort 12f13mut1.v.bam -o 12f13mut1.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12f13mut2.trimmed.fastq.gz -S 12f13mut2.v.sam\
+samtools view -S -b 12f13mut2.v.sam > 12f13mut2.v.bam\
+samtools sort 12f13mut2.v.bam -o 12f13mut2.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12f13mut3.trimmed.fastq.gz -S 12f13mut3.v.sam\
+samtools view -S -b 12f13mut3.v.sam > 12f13mut3.v.bam\
+samtools sort 12f13mut3.v.bam -o 12f13mut3.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12f13mut4.trimmed.fastq.gz -S 12f13mut4.v.sam\
+samtools view -S -b 12f13mut4.v.sam > 12f13mut4.v.bam\
+samtools sort 12f13mut4.v.bam -o 12f13mut4.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12f13mut5.trimmed.fastq.gz -S 12f13mut5.v.sam\
+samtools view -S -b 12f13mut5.v.sam > 12f13mut5.v.bam\
+samtools sort 12f13mut5.v.bam -o 12f13mut5.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12f13wt1.trimmed.fastq.gz -S 12f13wt1.v.sam\
+samtools view -S -b 12f13wt1.v.sam > 12f13wt1.v.bam\
+samtools sort 12f13wt1.v.bam -o 12f13wt1.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12f13wt2.trimmed.fastq.gz -S 12f13wt2.v.sam\
+samtools view -S -b 12f13wt2.v.sam > 12f13wt2.v.bam\
+samtools sort 12f13wt2.v.bam -o 12f13wt2.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12f13wt3.trimmed.fastq.gz -S 12f13wt3.v.sam\
+samtools view -S -b 12f13wt3.v.sam > 12f13wt3.v.bam\
+samtools sort 12f13wt3.v.bam -o 12f13wt3.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12f13wt4.trimmed.fastq.gz -S 12f13wt4.v.sam\
+samtools view -S -b 12f13wt4.v.sam > 12f13wt4.v.bam\
+samtools sort 12f13wt4.v.bam -o 12f13wt4.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12f13wt5.trimmed.fastq.gz -S 12f13wt5.v.sam\
+samtools view -S -b 12f13wt5.v.sam > 12f13wt5.v.bam\
+samtools sort 12f13wt5.v.bam -o 12f13wt5.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12ghumut1.trimmed.fastq.gz -S 12ghumut1.v.sam\
+samtools view -S -b 12ghumut1.v.sam > 12ghumut1.v.bam\
+samtools sort 12ghumut1.v.bam -o 12ghumut1.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12ghumut2.trimmed.fastq.gz -S 12ghumut2.v.sam\
+samtools view -S -b 12ghumut2.v.sam > 12ghumut2.v.bam\
+samtools sort 12ghumut2.v.bam -o 12ghumut2.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12ghumut3.trimmed.fastq.gz -S 12ghumut3.v.sam\
+samtools view -S -b 12ghumut3.v.sam > 12ghumut3.v.bam\
+samtools sort 12ghumut3.v.bam -o 12ghumut3.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12ghumut4.trimmed.fastq.gz -S 12ghumut4.v.sam\
+samtools view -S -b 12ghumut4.v.sam > 12ghumut4.v.bam\
+samtools sort 12ghumut4.v.bam -o 12ghumut4.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12ghumut5.trimmed.fastq.gz -S 12ghumut5.v.sam\
+samtools view -S -b 12ghumut5.v.sam > 12ghumut5.v.bam\
+samtools sort 12ghumut5.v.bam -o 12ghumut5.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12ghuwt1.trimmed.fastq.gz -S 12ghuwt1.v.sam\
+samtools view -S -b 12ghuwt1.v.sam > 12ghuwt1.v.bam\
+samtools sort 12ghuwt1.v.bam -o 12ghuwt1.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12ghuwt2.trimmed.fastq.gz -S 12ghuwt2.v.sam\
+samtools view -S -b 12ghuwt2.v.sam > 12ghuwt2.v.bam\
+samtools sort 12ghuwt2.v.bam -o 12ghuwt2.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12ghuwt3.trimmed.fastq.gz -S 12ghuwt3.v.sam\
+samtools view -S -b 12ghuwt3.v.sam > 12ghuwt3.v.bam\
+samtools sort 12ghuwt3.v.bam -o 12ghuwt3.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12ghuwt4.trimmed.fastq.gz -S 12ghuwt4.v.sam\
+samtools view -S -b 12ghuwt4.v.sam > 12ghuwt4.v.bam\
+samtools sort 12ghuwt4.v.bam -o 12ghuwt4.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12ghuwt5.trimmed.fastq.gz -S 12ghuwt5.v.sam\
+samtools view -S -b 12ghuwt5.v.sam > 12ghuwt5.v.bam\
+samtools sort 12ghuwt5.v.bam -o 12ghuwt5.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12mock1.trimmed.fastq.gz -S 12mock1.v.sam\
+samtools view -S -b 12mock1.v.sam > 12mock1.v.bam\
+samtools sort 12mock1.v.bam -o 12mock1.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12mock2.trimmed.fastq.gz -S 12mock2.v.sam\
+samtools view -S -b 12mock2.v.sam > 12mock2.v.bam\
+samtools sort 12mock2.v.bam -o 12mock2.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12mock3.trimmed.fastq.gz -S 12mock3.v.sam\
+samtools view -S -b 12mock3.v.sam > 12mock3.v.bam\
+samtools sort 12mock3.v.bam -o 12mock3.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12mock4.trimmed.fastq.gz -S 12mock4.v.sam\
+samtools view -S -b 12mock4.v.sam > 12mock4.v.bam\
+samtools sort 12mock4.v.bam -o 12mock4.sorted.v.bam\
+\
+hisat2 -p 10 -x nepo3 -U 12mock5.trimmed.fastq.gz -S 12mock5.v.sam\
+samtools view -S -b 12mock5.v.sam > 12mock5.v.bam\
+samtools sort 12mock5.v.bam -o 12mock5.sorted.v.bam\
+}

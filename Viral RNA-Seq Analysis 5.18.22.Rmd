@@ -1,0 +1,186 @@
+---
+title: "Viral RNA-Seq Analysis"
+author: "Brandon Roy"
+date: "05/18/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#load packages and dependencies
+library(BiocManager)
+library(DESeq2) # main RNA-Seq analysis pipeline
+library(pheatmap)
+library(PCAtools)
+library(tidyverse)
+library(ggplot2)
+library(ggfortify)
+library(goseq)
+library(ggpubr)
+library(tidyr)
+library(dplyr)
+library(Rmisc)
+library(grid)
+library(gridExtra)
+library(lemon)
+library(purrr)
+library(rnaseqGene)
+library(IHW)
+library(ggrepel)
+library(multiClust) # generating hierarchal clustering
+library(glmGamPoi)
+library(pcaExplorer)
+library(iSEE)
+```
+
+```{r Gene Counting from individual files, eval=FALSE, include=FALSE}
+#import necessary files
+metadata <- read.table("Sample_metadata.txt", header = TRUE)
+
+# assemble gene counts from featureCounts into single matrix
+library(purrr)
+f_files<- list.files("./5.GeneCountV", full.names = T)
+print(f_files)
+read_in_feature_counts<- function(file){
+  cnt<- read_tsv(file, col_names=T, comment='#')
+  cnt<- cnt %>% dplyr::select(-Chr, -Start, -End, -Strand, -Length)
+  return(cnt)
+}
+raw_counts<- map(f_files, read_in_feature_counts)
+raw_counts_df<- purrr::reduce(raw_counts,inner_join)
+
+# all counts are in one matrix and can be manipulated # now write to file
+write.table(raw_counts_df, file = "viralgeneCount.txt", row.names = F, col.names = F)
+raw_counts_df <- read.table(file= "viralgeneCount.txt")
+```
+
+# All files must be read in and assigned for input into DESeq2 analysis
+
+```{r}
+# Assign files
+matrixFileV <- "viralgeneCount.txt"
+sampleFileV <- "Viral_Sample_metadata.txt"
+
+#Input file manipulation
+VoriginalmatrixFile <- read.delim(matrixFileV,header=FALSE,sep = " ")
+VcleanedmatrixFile <- VoriginalmatrixFile[!duplicated(VoriginalmatrixFile$V1), ]
+Vcts <- data.frame(VcleanedmatrixFile[,-1], row.names=VcleanedmatrixFile[,1])
+
+Vcoldata <- read.delim("Viral_Sample_metadata.txt", sep='\t',row.names=1,header=TRUE )
+colnames(Vcts) <- rownames(Vcoldata)
+
+#Test whether rownames of coldata match colnames of cts
+all(rownames(Vcoldata) == colnames(Vcts)) #should return true
+
+# Adding a column 'group' to represent interaction of treatment*time:
+Vcoldata$group <- factor(paste0(Vcoldata$Treatment, Vcoldata$Time))
+
+#Set up factor type for everything except time:
+Vcoldata$Time <- as.factor(Vcoldata$Time)
+Vcoldata$Treatment <- as.factor(Vcoldata$Treatment)
+Vcoldata$Control <- as.factor(Vcoldata$Control)
+Vcoldata$F13Mut <- as.factor(Vcoldata$F13Mut)
+Vcoldata$F13 <- as.factor(Vcoldata$F13)
+Vcoldata$GHuMut <- as.factor(Vcoldata$GHuMut)
+Vcoldata$GHu <- as.factor(Vcoldata$GHu)
+Vcoldata$X12_day <- as.factor(Vcoldata$X12_day)
+Vcoldata$X7_day <- as.factor(Vcoldata$X7_day)
+Vcoldata$X4_day <- as.factor(Vcoldata$X4_day)
+Vcoldata$Symptoms <- as.factor(Vcoldata$Symptoms)
+Vcoldata$group <- as.factor(Vcoldata$group)
+
+```
+
+```{r, eval=T}
+
+# Deseq2 model construction: (design = ~ Treatment + Time + Interaction)
+dds <- DESeqDataSetFromMatrix(countData = Vcts, colData = Vcoldata, design = ~1 + group)
+
+# Run DeSeq2
+dds_out <- DESeq(dds)
+
+
+# Transformation
+cts_vst <- assay(dds_out)
+cts_vst <- as.data.frame(t(cts_vst))
+datExpr0 <- as.matrix(cts_vst)
+
+plotPCA(vsd, intgroup = "Treatment")
+pca_results <- plotPCA(vsd, intgroup = c('Treatment','Time'), ntop=1000, returnData=TRUE)
+pca_results
+ggplot(pca_results, aes(x=PC1,y=PC2,color=Treatment,shape=Time)) + geom_point(size=3)
+
+barplot(colSums(Vcts), las=2, cex.axis=0.75, col = c("#000000","#000000","#000000","#000000","#000000","#eb8060", "#eb8060","#eb8060","#eb8060","#eb8060","#b9e38d","#b9e38d","#b9e38d","#b9e38d","#b9e38d", "#a1e9f0","#a1e9f0","#a1e9f0","#a1e9f0","#a1e9f0","#d9b1f0","#d9b1f0","#d9b1f0","#d9b1f0","#d9b1f0"))
+barplot(rowSums(cts_vst), las=2, cex.lab=0.25, col = c("#000000","#000000","#000000","#000000","#000000","#eb8060", "#eb8060","#eb8060","#eb8060","#eb8060","#b9e38d","#b9e38d","#b9e38d","#b9e38d","#b9e38d", "#a1e9f0","#a1e9f0","#a1e9f0","#a1e9f0","#a1e9f0","#d9b1f0","#d9b1f0","#d9b1f0","#d9b1f0","#d9b1f0"))
+```
+
+```{r}
+
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+
+Viral.Reads.Table <- read.csv("~/OneDrive - Cornell University/Research/RNA-Seq Project/Viral Reads Table.csv")
+
+Viral.Reads.Table$group <- factor(paste0(Viral.Reads.Table$Treatment, Viral.Reads.Table$Time..dpi.))
+
+viraltiter <- aov(Viral.RPKM ~ group, data=Viral.Reads.Table)
+summary.aov(viraltiter)
+
+tukeyviraltiter <- TukeyHSD(viraltiter)
+tukeyviraltiter
+
+Viral.Reads.Table %>%
+  group_by(Treatment,Time..dpi.) %>%
+  get_summary_stats(Viral.RPKM,type="mean_sd")
+
+
+viral.reads.table7 <- filter(Viral.Reads.Table, Time..dpi. == 7)
+
+Viral.Reads.Table %>%
+  group_by(Treatment) %>%
+  get_summary_stats(Viral.RPKM,type="mean_sd")
+
+viraltiter7 <- aov(log(Viral.RPKM) ~ Treatment, data=viral.reads.table7)
+summary.aov(viraltiter7)
+
+tukeyviraltiter7 <- TukeyHSD(viraltiter7)
+tukeyviraltiter7
+
+krustiter7 <- kruskal_test(viral.reads.table7, formula = Viral.RPKM ~ Treatment)
+krustiter7 # p value of 0.0007
+
+pairwise_wilcox_test(viral.reads.table7, formula= Viral.RPKM ~ Treatment, p.adjust.method = "BH")
+
+bxp <- ggboxplot(viral.reads.table7, x='Treatment', y="Viral.RPKM", color="Treatment",palette= "jco")
+
+bxp
+
+
+# pairwise comparisons
+pwc <- viral.reads.table7 %>%
+  pairwise_t_test(
+    Viral.RPKM ~ Treatment, paired = FALSE,
+    p.adjust.method = "bonferroni"
+    )
+pwc
+
+pwc <- viral.reads.table7 %>%
+  wilcox_test(
+    Viral.RPKM ~ Treatment,
+    p.adjust.method = "bonferroni"
+    )
+pwc
+
+
+pwc <- pwc %>% add_xy_position(x = "Treatment")
+bxp + 
+  stat_pvalue_manual(pwc) +
+  labs(
+    subtitle = get_test_label(viraltiter7, detailed = TRUE),
+    caption = get_pwc_label(pwc)
+  )
+
+```
+
+
+

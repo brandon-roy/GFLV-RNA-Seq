@@ -1,0 +1,534 @@
+---
+title: "Mapping"
+author: "Brandon Roy"
+date: '2022-08-16'
+output: html_document
+---
+
+# NOTE: YOU MUST RUN RNA-SEQ ANALYSIS SCRIPTS BEFORE RUNNING THIS CODE
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(WGCNA)
+library(DESeq2)
+library(clusterProfiler)
+library(gprofiler2)
+library(DOSE)
+library(enrichplot)
+library(ggplot2)
+colorlist <- c('#8d96a3','#00798c','light blue','#d1495b','orange')
+```
+
+```{r}
+#Visualization of MEs on timepoint
+#summary of number of gene per module
+dds_interaction <- DESeqDataSetFromMatrix(countData = cts, colData = coldata, design = ~ group)
+dds_out_interaction <- DESeq(dds_interaction)
+vsd_interaction <- vst(dds_out_interaction,blind=FALSE)
+cts_vst_i <- assay(vsd_interaction)
+cts_vst_i <- as.data.frame(cts_vst_i)
+
+options(stringsAsFactors = FALSE)
+datExpr0 = as.data.frame(t(cts_vst_i))
+datExpr0 <- as.matrix(datExpr0)
+
+# Clustering using eigenmodules into groups with at least 200 genes per module
+net = blockwiseModules(datExpr0, power=6, randomSeed = 1234, networkType = "unsigned",
+                       TOMType = "signed", minModuleSize = 200,
+                       maxBlockSize = 10000, reassignThreshold = 0, mergeCutHeight = 0.25,
+                       minKMEtoStay = 0.3,
+                       numericLabels = TRUE, pamRespectsDendro = FALSE, saveTOMs = TRUE,
+                       saveTOMFileBase = "gflvTOM",
+                       verbose = 3)
+
+table(net$colors)
+mergedColors = labels2colors(net$colors)
+table(mergedColors)
+
+moduleLabels = net$colors
+
+moduleColors = labels2colors(net$colors)
+MEs = net$MEs;
+geneTree = net$dendrograms[[1]];
+save(MEs, moduleLabels, moduleColors, geneTree,
+     file = "unsupervise-03-networkConstruction-auto_n50=.RData")
+
+#Check eigengenes
+MEs0 = moduleEigengenes(datExpr0, moduleColors)$eigengenes
+MEs = orderMEs(MEs0)
+modNames = substring(names(MEs), 3)
+
+nGenes = ncol(datExpr0)
+nSamples = nrow(datExpr0)
+moduleTraitCor = cor(MEs, coldata[,c(2,3,4,5,6,8,9,10)], use = "p")
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamples)
+moduleTraitCor
+View(moduleTraitPvalue)
+textMatrix = paste(signif(moduleTraitCor, 2), "\n(",
+                   signif(moduleTraitPvalue, 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor)
+par(mar = c(4,6, 4, 1))
+
+table(mergedColors)
+N_gene_per_module <- as.data.frame(table(mergedColors))
+names(N_gene_per_module) = c("module_name", "Gene_number")
+N_gene_per_module <- N_gene_per_module[order(-N_gene_per_module$Gene_number),]
+module_name <- N_gene_per_module$module_name
+N_gene_per_module$name_and_number <- paste("ME",N_gene_per_module$module_name," (",N_gene_per_module$Gene_number,")", sep ="")
+
+
+
+
+
+```
+
+```{r}
+# Model eigengene visualization for treatment
+sample_name <- row.names(coldata)
+MEs_visualization <- data.frame(sample_name,MEs,coldata)
+MEs_visualization$Treatment <-factor(MEs_visualization$Treatment)
+
+MEs_visualization_long <- gather(MEs_visualization,Module,ME,MEblack:MEyellow, factor_key=TRUE)
+MEs_visualization_long <- gather(MEs_visualization,Module,ME,MEblue:MEgrey, factor_key=TRUE)
+
+#Summarizing
+MEs_visualization_long_summary <- summarySE(MEs_visualization_long, measurevar="ME", groupvars=c("Module","Time","Treatment"))
+MEs_visualization_long_summary_new <- MEs_visualization_long_summary
+pd <- position_dodge(0.2)
+module_levels = paste0("ME",N_gene_per_module$module_name)
+MEs_visualization_long_summary_new$Module <- factor(MEs_visualization_long_summary_new$Module,levels = module_levels,labels  = N_gene_per_module$name_and_number)
+MEs_visualization_long_summary_new$Treatment <- factor(MEs_visualization_long_summary_new$Treatment)
+
+MEs_visualization_1 <- ggplot(MEs_visualization_long_summary_new,aes(x=Time, y=ME, group = Treatment, color = Treatment)) +
+  geom_line(position=pd) +
+  geom_point(position=pd, size = 1.7) +
+  facet_wrap( ~ Module, scales = "free_y",ncol = 7) + 
+  xlab("Days post inoculation") +
+  ylab("Module eigengene") +
+  theme_bw() + 
+  theme(axis.line = element_line(colour = "black")) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(legend.direction = "vertical", legend.box = "vertical") + 
+  theme(axis.text = element_text(color = "black",size = 10)) + 
+  theme(strip.text=element_text(color="Black", size = 10, face = "bold"), strip.background = element_blank()) +
+  theme(axis.title = element_text(color = "black",size = 14, face = "bold" )) +
+  labs(color = "Treatment") +
+  scale_color_manual(values = c("light green","light blue","blue","violet","red"), labels= c('Control','F13 Mutant','F13 WT','GHu Mutant','GHu WT')) +
+  theme(axis.text.y = element_blank(),axis.ticks.y =  element_blank()) +
+  theme(legend.text = element_text(color="Black", size = 12, face = "bold")) +
+  theme(legend.title = element_text(color="Black", size = 12, face = "bold")) +
+  theme(legend.position = 'top', legend.direction = 'horizontal')
+
+par(mar = c(4,10, 4, 0))
+MEs_visualization_1 
+
+MEs_visualization_1 <- reposition_legend(MEs_visualization_1 + facet_wrap(~Module, ncol=7,scales = "free_y"), 'center', panel='caption')
+
+# ggsave("MEs_visualization_figure.png", plot = MEs_visualization_1, width = 35, height = 18, unit = "cm", dpi = 1500)
+
+ggplot(MEs_visualization_1$data$Module)
+```
+
+```{r}
+# Model eigengene visualization for time
+
+sample_name <- row.names(coldata)
+MEs_visualization <- data.frame(sample_name,MEs,coldata)
+MEs_visualization
+MEs_visualization$Time <-factor(MEs_visualization$Time)
+
+MEs_visualization_long <- gather(MEs_visualization,Module,ME,MEred:MEgrey, factor_key=TRUE)
+
+#Summarizing
+
+MEs_visualization_long_summary <- summarySE(MEs_visualization_long, measurevar="ME", groupvars=c("Module","Time","Control"))
+MEs_visualization_long_summary_new <- MEs_visualization_long_summary
+pd <- position_dodge(0.2)
+module_levels = paste0("ME",N_gene_per_module$module_name)
+MEs_visualization_long_summary_new$Module <- factor(MEs_visualization_long_summary_new$Module,levels = module_levels,labels  = N_gene_per_module$name_and_number)
+MEs_visualization_long_summary_new$Time <- factor(MEs_visualization_long_summary_new$Time)
+
+MEs_visualization_long_summary_new$Time
+MEs_visualization_1 <- ggplot (MEs_visualization_long_summary_new,aes(x=Control, y=ME, group = Time, color = Time)) +
+  geom_line(position=pd) +
+  geom_point(position=pd, size = 1.7) +
+  facet_wrap( ~ Module,scales = "free_y",ncol = 4) + 
+  xlab("Time post-treatment (h)") +
+  ylab("Module eigengene") +
+  theme_bw() + 
+  theme(axis.line = element_line(colour = "black")) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(legend.direction = "vertical", legend.box = "vertical") + 
+  theme(axis.text = element_text(color = "black",size = 10)) + 
+  theme(strip.text=element_text(color="Black", size = 10, face = "bold"), strip.background = element_blank()) +
+  theme(axis.title = element_text(color = "black",size = 14, face = "bold" )) +
+  labs(color = "Treatment") +
+  scale_color_manual(values = c("dark blue","grey","orange")) +
+  theme(axis.text.y = element_blank(),axis.ticks.y =  element_blank()) +
+  theme(legend.text = element_text(color="Black", size = 12, face = "bold")) +
+  theme(legend.title = element_text(color="Black", size = 12, face = "bold"))
+  #scale_x_continuous(breaks = c(4,7,12))
+
+MEs_visualization_1 
+gtable_show_names(MEs_visualization_1)
+
+
+MEs_visualization_1 <- reposition_legend(MEs_visualization_1 + facet_wrap(~Module, ncol=4,scales = "free_y"),
+                                                     'center', panel=c('panel-4-3'))
+
+ggsave("MEs_visualization_figure.png", plot = MEs_visualization_1, width = 16, height = 15, unit = "cm", dpi = 1500)
+
+```
+
+```{r}
+# find the best WGCNA results
+
+module_eigengenes <- net$MEs
+#Ensure that data tables are the same and align
+all.equal(rownames(coldata), rownames(module_eigengenes))
+coldata$refinebio_accession_code <- rownames(coldata)
+des_mat <- model.matrix(~ coldata$Time)
+# lmFit() needs a transposed version of the matrix
+fit <- limma::lmFit(t(module_eigengenes), design = des_mat)
+# Apply empirical Bayes to smooth standard errors
+fit <- limma::eBayes(fit)
+# Apply multiple testing correction and obtain stats
+stats_df <- limma::topTable(fit, number = ncol(module_eigengenes)) %>%
+  tibble::rownames_to_column("module")
+head(stats_df)
+
+# The most differentially expressed modules appear to be MEs 7,3,0,1,13,12,2, & 5
+
+gene_module_key <- tibble::enframe(net$colors, name = "gene", value = "module") %>%
+  # Let's add the `ME` part so its more clear what these numbers are and it matches elsewhere
+  dplyr::mutate(module = paste0("ME", module))
+
+
+module_7_df <- module_eigengenes %>%
+  tibble::rownames_to_column("accession_code") %>%
+  # Here we are performing an inner join with a subset of metadata
+  dplyr::inner_join(coldata %>%
+    dplyr::select(refinebio_accession_code, group, Treatment, Time),
+  by = c("accession_code" = "refinebio_accession_code")
+  )
+
+ggplot(module_7_df, aes(x = group, y = ME7, color = Treatment)) +
+  geom_boxplot(width = 0.2, outlier.shape = NA) +
+  ggforce::geom_sina(maxwidth = 0.3)  +
+  facet_wrap("Time")
+ggplot(module_7_df, aes(x = group, y = ME3, color = Treatment)) +
+  geom_boxplot(width = 0.2, outlier.shape = NA) +
+  ggforce::geom_sina(maxwidth = 0.3)  +
+  facet_wrap("Time")  
+ggplot(module_7_df, aes(x = group, y = ME0, color = Treatment)) +
+  geom_boxplot(width = 0.2, outlier.shape = NA) +
+  ggforce::geom_sina(maxwidth = 0.3)  +
+  facet_wrap("Time")  
+ggplot(module_7_df, aes(x = group, y = ME1, color = Treatment)) +
+  geom_boxplot(width = 0.2, outlier.shape = NA) +
+  ggforce::geom_sina(maxwidth = 0.3)  +
+  facet_wrap("Time")
+
+ggplot(module_7_df, aes(x = group, y = ME13, color = Treatment)) +
+  geom_boxplot(width = 0.2, outlier.shape = NA) +
+  ggforce::geom_sina(maxwidth = 0.3)  +
+  facet_wrap("Time")
+ggplot(module_7_df, aes(x = group, y = ME12, color = Treatment)) +
+  geom_boxplot(width = 0.2, outlier.shape = NA) +
+  ggforce::geom_sina(maxwidth = 0.3)  +
+  facet_wrap("Time")  
+ggplot(module_7_df, aes(x = group, y = ME2, color = Treatment)) +
+  geom_boxplot(width = 0.2, outlier.shape = NA) +
+  ggforce::geom_sina(maxwidth = 0.3)  +
+  facet_wrap("Time")  
+ggplot(module_7_df, aes(x = group, y = ME5, color = Treatment)) +
+  geom_boxplot(width = 0.2, outlier.shape = NA) +
+  ggforce::geom_sina(maxwidth = 0.3)  +
+  facet_wrap("Time")
+
+# ME2 is very interesting at 7dpi 
+ME2_genes <- gene_module_key %>%
+  dplyr::filter(module == "ME2")
+
+GHu_WT_genes <- gene_module_key %>%
+  dplyr::filter(module == "ME10" | module == "ME12" | module == "ME4" | module == "ME7")
+ghugores <-  gost(GHu_WT_genes$gene, organism = 'gp__HTvx_rYJC_ffE', significant = TRUE)
+ghugores$result
+dataghu7GO <- data.frame("Enrichment" = "ME GHu 7dpi", "GOghu" = ghugores$result$term_id,
+"name" = ghugores$result$term_name, "ratio" = ghugores$result$term_size, "P.value" = ghugores$result$p_value)
+
+ggplot(data = dataghu7GO, aes(x = "ME GHu 7dpi", y = name,
+                        color = P.value, size = ratio)) + 
+  geom_point() +
+  scale_color_gradient(low = "red", high = "blue") +
+  theme_bw() + 
+  ylab("") + 
+  xlab("") + 
+  ggtitle("GO enrichment analysis")
+dataghu7GO$name <- gsub("_", " ", dataghu7GO$name)
+#dataghu7GO <- dataghu7GO %>%
+ # dplyr::filter(P.value <0.045)
+dataghu7GO <- dataghu7GO %>%
+  dplyr::filter(ratio > 50)
+ggplot(dataghu7GO, aes(x = reorder(name,ratio), y = ratio, fill = P.value)) +
+  geom_bar(stat = "identity", position = "dodge", ) +
+  scale_fill_gradient(low = "red", high = "blue") +
+  coord_flip() + 
+  xlab("Gene ontology term") + 
+  ylab("Ratio of GO terms present") +
+  guides(fill=guide_legend(title="P value")) +
+  theme(
+    legend.position = c(.975, .05),
+    legend.justification = c("right", "bottom"),
+    legend.box.just = "top",
+    legend.margin = margin(6, 6, 6, 6),
+    plot.margin = unit(c(0,5,0,0),"cm")
+    )
+```
+
+```{r}
+F13_mut4_genes <- gene_module_key %>%
+  dplyr::filter(module == "ME27" | module == "ME11" | module == "ME9")
+f13mut4res <-  gost(F13_mut4_genes$gene, organism = 'gp__HTvx_rYJC_ffE', significant = TRUE)
+dataf13m4GO <- data.frame("GOghu" = f13mut4res$result$term_id,
+"name" = f13mut4res$result$term_name, "ratio" = f13mut4res$result$term_size, "P.value" = f13mut4res$result$p_value)
+dataf13m4GO$name <- gsub("_", " ", dataf13m4GO$name)
+ggplot(dataf13m4GO, aes(x = reorder(name,ratio), y = ratio, fill = P.value)) +
+  geom_bar(stat = "identity", position = "dodge", ) +
+  scale_fill_gradient(low = "red", high = "blue") +
+  coord_flip() + 
+  xlab("Gene ontology term") + 
+  ylab("Ratio of GO terms present") +
+  guides(fill=guide_legend(title="P value")) +
+  theme(
+    legend.position = c(.975, .05),
+    legend.justification = c("right", "bottom"),
+    legend.box.just = "right",
+    legend.margin = margin(6, 6, 6, 6))
+```
+
+```{r}
+# no significant resulting GO's for f13mut 7dpi
+F13_mut7_genes <- gene_module_key %>%
+  dplyr::filter(module == "ME23" | module == "ME28")
+f13mut7res <-  gost(F13_mut7_genes$gene, organism = 'gp__HTvx_rYJC_ffE', significant = FALSE)
+
+# no significant resulting GO's for f13mut 12dpi
+F13_mut12_genes <- gene_module_key %>%
+  dplyr::filter(module == "ME25" | module == "ME26")
+f13mut12res <-  gost(F13_mut12_genes$gene, organism = 'gp__HTvx_rYJC_ffE', significant = TRUE)
+```
+
+```{r}
+# no significant resulting GO's for GHu mutant 4dpi
+ghu_mut4_genes <- gene_module_key %>%
+  dplyr::filter(module == "ME14")
+ghumut4res <-  gost(ghu_mut4_genes$gene, organism = 'gp__HTvx_rYJC_ffE', significant = TRUE)
+# no significant resulting GO's for GHu mutant 7dpi
+ghu_mut7_genes <- gene_module_key %>%
+  dplyr::filter(module == "ME22" | module == "ME21")
+ghumut7res <-  gost(ghu_mut7_genes$gene, organism = 'gp__HTvx_rYJC_ffE', significant = FALSE)
+```
+
+```{r}
+ME2gores <-  gost(ME2_genes$gene, organism = 'gp__HTvx_rYJC_ffE', significant = TRUE)
+dataME2GO <- data.frame("GOghu" = ME2gores$result$term_id,
+"name" = ME2gores$result$term_name, "ratio" = ME2gores$result$term_size, "P.value" = ME2gores$result$p_value)
+
+
+ggplot(data = dataME2GO, aes(x = "ME2", y = name,
+                        color = P.value, size = ratio)) + 
+  geom_point() +
+  scale_color_gradient(low = "red", high = "blue") +
+  theme_bw() + 
+  ylab("") + 
+  xlab("") + 
+  ggtitle("GO enrichment analysis")
+
+barplot(ME2gores, showCategory=20) 
+ratio <- ME2gores$result$term_size
+barplot(ratio ~ name, data=dataME2GO, horiz=TRUE)+
+  scale_fill_gradient(low = "red", high = "blue") +
+  ggtitle("GO enrichment analysis")
+
+dataME2GO$name <- gsub("_", " ", dataME2GO$name)
+ggplot(dataME2GO, aes(x = reorder(name,ratio), y = ratio, fill = P.value)) +
+  geom_bar(stat = "identity", position = "dodge", ) +
+  scale_fill_gradient(low = "red", high = "blue") +
+  coord_flip() + 
+  xlab("Gene ontology term") + 
+  ylab("Ratio of GO terms present") +
+  guides(fill=guide_legend(title="P value")) +
+  theme(
+    legend.position = c(.975, .05),
+    legend.justification = c("right", "bottom"),
+    legend.box.just = "right",
+    legend.margin = margin(6, 6, 6, 6),
+    plot.margin = unit(c(0,7,0,0),"cm")
+    )
+  
+
+```
+
+```{r}
+
+make_module_heatmap <- function(module_name,
+                                expression_mat = norm_counts,
+                                metadata_df = coldata,
+                                gene_module_key_df = gene_module_key,
+                                module_eigengenes_df = module_eigengenes) {
+  # Create a summary heatmap of a given module.
+  #
+  # Args:
+  # module_name: a character indicating what module should be plotted, e.g. "ME19"
+  # expression_mat: The full gene expression matrix. Default is `normalized_counts`.
+  # metadata_df: a data frame with refinebio_accession_code and time_point
+  #              as columns. Default is `metadata`.
+  # gene_module_key: a data.frame indicating what genes are a part of what modules. Default is `gene_module_key`.
+  # module_eigengenes: a sample x eigengene data.frame with samples as row names. Default is `module_eigengenes`.
+  #
+  # Returns:
+  # A heatmap of expression matrix for a module's genes, with a barplot of the
+  # eigengene expression for that module.
+
+  # Set up the module eigengene with its refinebio_accession_code
+  module_eigengene <- module_eigengenes_df %>%
+    dplyr::select(all_of(module_name)) %>%
+    tibble::rownames_to_column("refinebio_accession_code")
+
+  # Set up column annotation from metadata
+  col_annot_df <- metadata_df %>%
+    # Only select the treatment and sample ID columns
+    dplyr::select(refinebio_accession_code, Time, Treatment) %>%
+    # Add on the eigengene expression by joining with sample IDs
+    dplyr::inner_join(module_eigengene, by = "refinebio_accession_code") %>%
+    # Arrange by patient and time point
+    dplyr::arrange(Time, Treatment) %>%
+    # Store sample
+    tibble::column_to_rownames("refinebio_accession_code")
+
+  # Create the ComplexHeatmap column annotation object
+  col_annot <- ComplexHeatmap::HeatmapAnnotation(
+    # Supply treatment labels
+    Time = col_annot_df$Time,
+    # Add annotation barplot
+    module_eigengene = ComplexHeatmap::anno_barplot(dplyr::select(col_annot_df, module_name)),
+    # Pick colors for each experimental group in time_point
+    col = list(Treatment = colorlist)
+  )
+
+  # Get a vector of the Ensembl gene IDs that correspond to this module
+  module_genes <- gene_module_key_df %>%
+    dplyr::filter(module == module_name) %>%
+    dplyr::pull(gene)
+
+  # Set up the gene expression data frame
+  mod_mat <- expression_mat %>%
+    t() %>%
+    as.data.frame() %>%
+    # Only keep genes from this module
+    dplyr::filter(rownames(.) %in% module_genes) %>%
+    # Order the samples to match col_annot_df
+    dplyr::select(rownames(col_annot_df)) %>%
+    # Data needs to be a matrix
+    as.matrix()
+
+  # Normalize the gene expression values
+  mod_mat <- mod_mat %>%
+    # Scale can work on matrices, but it does it by column so we will need to
+    # transpose first
+    t() %>%
+    scale() %>%
+    # And now we need to transpose back
+    t()
+
+  # Create a color function based on standardized scale
+  color_func <- circlize::colorRamp2(
+    c(-2, 0, 2),
+    c("#67a9cf", "#f7f7f7", "#ef8a62")
+  )
+
+  # Plot on a heatmap
+  heatmap <- ComplexHeatmap::Heatmap(mod_mat,
+    name = module_name,
+    # Supply color function
+    col = color_func,
+    # Supply column annotation
+    bottom_annotation = col_annot,
+    # We don't want to cluster samples
+    cluster_columns = FALSE,
+    # We don't need to show sample or gene labels
+    show_row_names = FALSE,
+    show_column_names = FALSE
+  )
+
+  # Return heatmap
+  return(heatmap)
+}
+
+mod_19_heatmap <- make_module_heatmap(module_name = "ME2")
+
+```
+
+```{r}
+
+
+
+# extracting out genes from each module based on hypotheses previously formed and the module expression shape
+
+
+
+
+
+
+
+
+
+
+options(stringsAsFactors = FALSE)
+
+# Hypothesis #1: Peak symptom observation genes
+#GHu WT 	7dpi – MEblue, MEpurple, MEbrown, MEyellow, MEblack
+net$
+blue_module <- tibble::enframe(MEs0, name = "gene", value = "module") %>%
+  dplyr::mutate(module = paste0("ME",module))
+
+
+
+
+probes = names(datExpr0)
+names(datExpr0)[moduleColors=="blue"]
+
+
+# Hypothesis #2: Recovery of GHu WT genes
+# 12dpi – MElightcyan, MElightgreen
+
+
+# F13 Mutant does not revert back the phenotype but created modules of interest with rather unique expression profiles at all three time points
+#F13 Mutant 	4dpi – MEwhite, MEgreenyellow 
+
+#7dpi – MEdarkturquoise, MEskyblue 
+
+#12dpi – MEorange, MEdarkorange
+
+# Hypothesis #3: A single amino acid disrupts plant-pathogen interactions to the extent of complete abolishment of symptomology.
+#GHu Mutant	4dpi - MEcyan
+#7dpi – MEdarkgreen, MEdarkred 
+
+
+
+```
+
+```{r}
+WGCNA_input_gene <- data.frame(t(datExpr0))
+
+WGCNA_input_gene <- data.frame(WGCNA_input_gene, module = moduleColors)                          
+WGCNA_input_gene_filtered <- filter(WGCNA_input_gene, !module == "grey")
+WGCNA_input_gene_filtered #25310 genes remained
+
+
+
+cols <- c("grey"="grey","turquoise"="turquoise","blue"="blue","brown"="brown","yellow"="yellow","green"="green","red"="red","black"="black","pink"="pink","magenta"="magenta","purple"="purple","greenyellow"="greenyellow","tan"="tan","salmon"="salmon","cyan"="cyan","midnightblue"="midnightblue","lightcyan"="lightcyan","grey60"="grey60","lightgreen"="lightgreen","lightyellow"="lightyellow","royalblue"="royalblue","red"="red","green"="green","turquoise"="turquoise","grey"="grey") 
+tiff('Module_trait relationships.tiff', units="in", width=4, height=6, res=1000, compression = 'lzw')
+
+```

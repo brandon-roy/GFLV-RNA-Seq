@@ -1,0 +1,972 @@
+---
+title: "RNA-Seq Analysis"
+author: "Brandon Roy"
+date: "03/23/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#load packages and dependencies
+library(BiocManager)
+library(DESeq2) # main RNA-Seq analysis pipeline
+library(pheatmap)
+library(PCAtools)
+library(tidyverse)
+library(ggplot2)
+library(ggfortify)
+library(goseq)
+library(ggpubr)
+library(tidyr)
+library(dplyr)
+library(WGCNA) # network analysis
+library(wesanderson)
+library(Rmisc)
+library(grid)
+library(gridExtra)
+library(lemon)
+library(purrr)
+library(rnaseqGene)
+library(IHW)
+library(ggrepel)
+library(multiClust) # generating hierarchal clustering
+library(glmGamPoi)
+library(pcaExplorer)
+library(iSEE)
+```
+
+```{r Gene Counting from individual files, eval=FALSE, include=FALSE}
+#import necessary files
+metadata <- read.table("Sample_metadata.txt", header = TRUE)
+
+# assemble gene counts from featureCounts into single matrix
+library(purrr)
+f_files<- list.files("./5.GeneCount", full.names = T)
+print(f_files)
+read_in_feature_counts<- function(file){
+  cnt<- read_tsv(file, col_names=T, comment='#')
+  cnt<- cnt %>% dplyr::select(-Chr, -Start, -End, -Strand, -Length)
+  return(cnt)
+}
+raw_counts<- map(f_files, read_in_feature_counts)
+raw_counts_df<- purrr::reduce(raw_counts,inner_join)
+
+# all counts are in one matrix and can be manipulated # now write to file
+write.table(raw_counts_df, file = "geneCount.txt", row.names = F, col.names = F)
+raw_counts_df <- read.table(file= "geneCount.txt")
+```
+
+# All files must be read in and assigned for input into DESeq2 analysis
+
+```{r}
+# Assign files
+matrixFile <- "geneCount.txt"
+sampleFile <- "Sample_metadata.txt"
+
+#Input file manipulation
+originalmatrixFile <- read.delim(matrixFile,header=FALSE,sep = " ")
+cleanedmatrixFile <- originalmatrixFile[!duplicated(originalmatrixFile$V1), ]
+cts <- data.frame(cleanedmatrixFile[,-1], row.names=cleanedmatrixFile[,1])
+
+coldata <- read.delim("Sample_metadata.txt", sep='\t',row.names=1,header=TRUE )
+colnames(cts) <- rownames(coldata)
+
+#Test whether rownames of coldata match colnames of cts
+all(rownames(coldata) == colnames(cts)) #should return true
+
+# Adding a column 'group' to represent interaction of treatment*time:
+coldata$group <- factor(paste0(coldata$Treatment, coldata$Time))
+
+#Set up factor type for everything except time:
+coldata$Time <- as.factor(coldata$Time)
+coldata$Treatment <- as.factor(coldata$Treatment)
+coldata$Control <- as.factor(coldata$Control)
+coldata$F13Mut <- as.factor(coldata$F13Mut)
+coldata$F13 <- as.factor(coldata$F13)
+coldata$GHuMut <- as.factor(coldata$GHuMut)
+coldata$GHu <- as.factor(coldata$GHu)
+coldata$X12_day <- as.factor(coldata$X12_day)
+coldata$X7_day <- as.factor(coldata$X7_day)
+coldata$X4_day <- as.factor(coldata$X4_day)
+coldata$Symptoms <- as.factor(coldata$Symptoms)
+coldata$group <- as.factor(coldata$group)
+
+ggplot(data=cts, )
+barplot(colSums(cts[,1:75]))
+```
+
+
+```{r}
+# construction of 4dpi deseq2 object
+
+fourdaymatrix <- cbind(cts[26:50])
+fourdaycoldata <- read.csv("fourdaycoldata.csv", header=TRUE,row.names = 1)
+colnames(fourdaymatrix) <- rownames(fourdaycoldata)
+all(rownames(fourdaycoldata) == colnames(fourdaymatrix))
+fourdaycoldata$Treatment <- as.factor(fourdaycoldata$Treatment)
+dd4 <- DESeqDataSetFromMatrix(countData = fourdaymatrix, colData = fourdaycoldata, design = ~1 +Treatment)
+keep4 <- rowSums(counts(dd4)) >= 50
+dd4 <- dd4[keep4,]
+dds_out4 <- DESeq(dd4)
+print("Group comparison outputs of DESeq2 model:")
+print(resultsNames(dds_out4))
+print("Dispersion Estimates of Counts")
+plotDispEsts(dds_out4)
+vsd4 <- vst(dds_out4, blind=F, fitType='local')
+cts_vst4 <- assay(vsd4)
+cts_vst4 <- as.data.frame(t(cts_vst4))
+datExpr04 <- as.matrix(cts_vst4)
+
+plotPCA(vsd4, intgroup = "Treatment")
+plotMA(res4, ylim=c(-2,2))
+
+# construction of 7dpi deseq2 object
+
+sevendaymatrix <- cbind(cts[51:75])
+sevendaycoldata <- read.csv("sevendaycoldata.csv", header=TRUE)
+colnames(sevendaymatrix) <- rownames(sevendaycoldata)
+all(rownames(sevendaycoldata) == colnames(sevendaymatrix))
+dd7 <- DESeqDataSetFromMatrix(countData = sevendaymatrix, colData = sevendaycoldata, design = ~ 1 + Treatment)
+keep7 <- rowSums(counts(dd7)) >= 50
+dd7 <- dd7[keep7,]
+dds_out7 <- DESeq(dd7)
+print("Group comparison outputs of DESeq2 model:")
+print(resultsNames(dds_out7))
+print("Dispersion Estimates of Counts")
+plotDispEsts(dds_out7)
+vsd7 <- vst(dds_out7, blind=FALSE, fitType='local')
+cts_vst7 <- assay(vsd7)
+cts_vst7 <- as.data.frame(t(cts_vst7))
+datExpr07 <- as.matrix(cts_vst7)
+
+plotPCA(vsd7, intgroup = "Treatment")
+
+resNorm <- lfcShrink(dds_out7, coef=2, type="normal")
+resAsh7 <- lfcShrink(dds_out7, coef=2, type="ashr")
+par(mfrow=c(1,3), mar=c(4,4,2,1))
+xlim <- c(1,1e5); ylim <- c(-3,3)
+plotMA(resLFC, xlim=xlim, ylim=ylim, main="apeglm")
+plotMA(resNorm, xlim=xlim, ylim=ylim, main="normal")
+plotMA(resAsh, xlim=xlim, ylim=ylim, main="ashr")
+
+# construction of 12dpi deseq2 matrix
+
+twelvedaymatrix <- cbind(cts[1:25])
+twelvedaycoldata <- read.csv("twelvedaycoldata.csv", header=TRUE)
+colnames(twelvedaymatrix) <- rownames(twelvedaycoldata)
+all(rownames(twelvedaycoldata) == colnames(twelvedaymatrix))
+dd12 <- DESeqDataSetFromMatrix(countData = twelvedaymatrix, colData = twelvedaycoldata, design = ~ 1 +Treatment)
+keep12 <- rowSums(counts(dd12)) >= 50
+dd12 <- dd12[keep12,]
+dds_out12 <- DESeq(dd12)
+print("Group comparison outputs of DESeq2 model:")
+print(resultsNames(dds_out12))
+print("Dispersion Estimates of Counts")
+plotDispEsts(dds_out12)
+vsd12 <- vst(dds_out12)
+cts_vst12 <- assay(vsd12)
+cts_vst12 <- as.data.frame(t(cts_vst12))
+datExpr012 <- as.matrix(cts_vst12)
+
+pca_res12 <- plotPCA(vsd12, intgroup = "Treatment", ntop=1000,returnData=TRUE)
+pca_res12
+#pcaExplorer(dds=dds_out12)
+#vsd12 <- as.matrix(vsd12$Treatment)
+#pca_res12 <- prcomp(vsd12, scale. = TRUE)
+ggplot(pca_res12, aes(x=PC1,y=PC2,color=Treatment,shape=2))
+autoplot(pca_res12, intgroup='Treatment') + geom_point(shape=)
+
+```
+
+
+# Construction of model with 59814 genes
+# Filtering for low counts returns 31396 genes
+# Transform counts
+
+```{r, eval=T}
+# Deseq2 model construction: (design = ~ Treatment + Time + Interaction)
+dds <- DESeqDataSetFromMatrix(countData = cts, colData = coldata, design = ~1 + group)
+keep <- rowSums(counts(dds)) >= 150
+dds <- dds[keep,]
+
+# Run DeSeq2
+dds_out <- DESeq(dds)
+print("Group comparison outputs of DESeq2 model:")
+print(resultsNames(dds_out))
+print("Dispersion Estimates of Counts")
+plotDispEsts(dds_out)
+
+# Transformation
+vsd <- vst(dds_out)
+vsd
+plotDispEst(vsd)
+cts_vst <- assay(vsd)
+cts_vst <- as.data.frame(t(cts_vst))
+datExpr0 <- as.matrix(cts_vst)
+
+plotPCA(vsd, intgroup = "Treatment")
+pca_results <- plotPCA(vsd, intgroup = c('Treatment','Time'), ntop=1000, returnData=TRUE)
+pca_results
+ggplot(pca_results, aes(x=PC1,y=PC2,color=Treatment,shape=Time)) + geom_point(size=3)
+
+barplot(colSums(cts), las=2, cex.axis=0.75, col = c("#000000","#000000","#000000","#000000","#000000","#eb8060", "#eb8060","#eb8060","#eb8060","#eb8060","#b9e38d","#b9e38d","#b9e38d","#b9e38d","#b9e38d", "#a1e9f0","#a1e9f0","#a1e9f0","#a1e9f0","#a1e9f0","#d9b1f0","#d9b1f0","#d9b1f0","#d9b1f0","#d9b1f0"))
+barplot(rowSums(cts_vst), las=2, cex.lab=0.25, col = c("#000000","#000000","#000000","#000000","#000000","#eb8060", "#eb8060","#eb8060","#eb8060","#eb8060","#b9e38d","#b9e38d","#b9e38d","#b9e38d","#b9e38d", "#a1e9f0","#a1e9f0","#a1e9f0","#a1e9f0","#a1e9f0","#d9b1f0","#d9b1f0","#d9b1f0","#d9b1f0","#d9b1f0"))
+```
+
+# PCA plot
+```{r}
+# PCA Plot for grouping
+p <- plotPCA(vsd, intgroup = "Time", ntop=3000, returnData=T) # The symptomatic GHu separates well from other treatments at 7dpi, but the components created cannot attribute much to the other treatments
+ggplot(data=p, mapping = aes('PC1', 'PC2'))
+p
+plotPCA(vsd,intgroup="group")
+# Store results 
+res <- results(dds_out)
+summary(results(dds_out))
+
+#pcaExplorer(dds=dds_out)
+
+pcascree(p, type=c("pev","cev"))
+
+rv <- rowVars(assay(vsd))
+select <- order(rv, decreasing=TRUE)[seq_len(min(500,length(rv)))]
+pca <- prcomp(t(assay(vsd)[select,]))
+percentVar <- pca$sdev^2 / sum(pca$sdev^2)
+scree_plot=data.frame(percentVar)
+scree_plot[,2]<- c(1:75)
+colnames(scree_plot)<-c("variance","component_number")
+ggplot(scree_plot, mapping=aes(x=component_number, y=variance))+geom_bar(stat="identity")
+  with(scree_plot, plot(component_number,variance), pch=20, xlim=c(0,10))+geom_bar(stat="identity")
+#df <- dat[1:4]
+#pca_res <- prcomp(datExpr0,scale. = F)
+#autoplot(pca_res, data = coldata, colour = 'Treatment', shape = "Time", loadings=TRUE)
+
+#autoplot(kmeans(datExpr0,4), data=coldata)
+
+```
+
+
+
+```{r, eval=FALSE, echo=FALSE}
+# Output for Gene Set Enrichment Analysis (GSEA)
+norm_counts <- counts(dds_out, normalized = T)
+norm_counts <- as.data.frame(norm_counts)
+names <- rownames(norm_counts)
+norm_counts$description <- names
+norm_counts <- norm_counts %>% relocate(description, .before = `12f13mut1.sorted.bam`)
+write.table(norm_counts, "normalized_counts.gct", sep = "\t", quote = F, row.names = F)
+print("DONE: file has been exported as 'normalized_counts.gct'.")
+```
+
+# Hierarchal clustering of samples, using weighted pair method
+```{r}
+# Dendrogram for cluster sampling and detecting outliers
+sampleTree <- hclust(dist(datExpr0), method = "mcquitty") # This method seems to group the data the best, weighted pair cluster analysis
+plot(sampleTree, main= "Sample Cluster Dendrogram for GFLV infected N. benthamiana")
+
+plot(as.dendrogram(sampleTree)) +
+  rect.hclust(sampleTree,h=95)
+plot(sampleTree, main = "Sample clustering to detect outliers", sub="",xlab=" ",
+     cex.axis = 2, cex = 1.5,font.axis = 2,cex.main = 2.5,font.lab =2, cex.lab = 3,ylab = "Height", hang = 0.1, lwd = 2.5, lend = 'round')
+
+data.exprs <- cts
+ranked.exprs <- probe_ranking(input=matrixFile,
+    probe_number=300, 
+    probe_num_selection="Fixed_Probe_Num",
+    data.exp=data.exprs, 
+    method="SD_Rank")
+
+hclust_analysis <- cluster_analysis(sel.exp=ranked.exprs,
+    cluster_type="HClust",
+    distance="euclidean", linkage_type="mcquitty", 
+    gene_distance="correlation",
+    num_clusters=3, data_name="Analysis", 
+    probe_rank="SD_Rank", probe_num_selection="Fixed_Probe_Num",
+    cluster_num_selection="Fixed_Clust_Num")
+```
+
+### Contrasting different treatments and time points allow for hypothesis led testing of DEGs.
+
+# Hypothesis 1: Recovery of GHu WT is due to an immune response of the host recognizing the viral infection and thereby upregulates RNA silencing pathways. 
+
+```{r}
+
+summary(results(dds_out, "Treatmentghu_wt_vs_Control", test="Wald"))
+summary(results(dds_out, contrast =list(c("Treatmentghu_wt.Time7","Treatmentghu_mut.Time7")), test="Wald"))
+summary(results(dds_out, contrast =list(c("Treatmentghu_wt.Time12","Treatmentghu_mut.Time12")), test="Wald"))
+
+resultsNames(dds_out)
+par(mar=c(5,5,5,5), cex=1.0, cex.main=1.4, cex.axis=1.4, cex.lab=1.4)
+topT <- as.data.frame(res)
+
+#Adjusted P values (FDR Q values)
+with(topT, plot(log2FoldChange, -log10(padj), pch=20, main="Volcano plot", cex=1.0, xlab=bquote(~Log[2]~fold~change), ylab=bquote(~-log[10]~Q~value)))
+with(subset(topT, padj<0.05 & abs(log2FoldChange)>2), points(log2FoldChange, -log10(padj), pch=20, col="red", cex=0.5))
+with(subset(topT, padj<0.05 & abs(log2FoldChange)>2), text(log2FoldChange, -log10(padj), labels=subset(rownames(topT), topT$padj<0.05 & abs(topT$log2FoldChange)>2), cex=0.8, pos=3))
+
+#Add lines for absolute FC>2 and P-value cut-off at FDR Q<0.05
+abline(v=0, col="black", lty=3, lwd=1.0)
+abline(v=-2, col="black", lty=4, lwd=2.0)
+abline(v=2, col="black", lty=4, lwd=2.0)
+abline(h=-log10(max(topT$pvalue[topT$padj<0.05], na.rm=TRUE)), col="black", lty=4, lwd=2.0)
+```
+
+
+
+
+
+```{r}
+plotPCA(vsd, intgroup = "Time", returnData=F)
+p <- plotPCA(vsd_out, intgroup = "Treatment", returnData=F)
+autoplot(p,loadings=T)
+plotSparsity(dds_out, normalize=T)
+
+resultsNames(dds_out)
+# To test this, we look at the DEGs between GHu WT and GHu Mutant at 7 days post inoculation.
+summary(results(dds_out, contrast =c("group","ghu_wt7","ghu_mut7"),alpha=0.05))
+dds_out$Treatment
+par(mfrow=c(1,1))
+
+ghuwtvsmut7 <- data.frame(results(dds_out, contrast=c("group", "ghu_wt7", "ghu_mut7"),alpha=0.05))
+ggplot(data=ghuwtvsmut7, aes(x=log2FoldChange, y=-log10(pvalue), col=ghuwtvsmut7$diffexpressed, label=ghuwtvsmut7$delabel)) + 
+    geom_point() + 
+    theme_minimal()
+
+with(ghuwtvsmut7, plot(log2FoldChange, -log10(pvalue), pch=20, main="GHu WT vs GHu Mut (7dpi)", xlim=c(-7,9), ylim=c(0,50)))+
+  with(subset(ghuwtvsmut7, pvalue<.05 ), points(log2FoldChange, -log10(pvalue), pch=20, col="light blue"))+
+  with(subset(ghuwtvsmut7, abs(log2FoldChange)>1), points(log2FoldChange, -log10(pvalue), pch=20, col="gray"))+
+  with(subset(ghuwtvsmut7, pvalue<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(pvalue), pch=20, col="light green")) 
+
+```
+
+```{r}
+
+p <- ggplot(data=ghuwtvsmut, aes(x=log2FoldChange, y=pvalue)) + geom_point() + theme_minimal()
+p2 <- p + geom_vline(xintercept=c(-2,2), col="red") + geom_hline(yintercept=-log10(0.01),col="red")
+ghuwtvsmut$diffexpressed <- "NO"
+ghuwtvsmut$diffexpressed[ghuwtvsmut$log2FoldChange > 2 & ghuwtvsmut$pvalue < 0.01] <- "UP"
+head(ghuwtvsmut)
+# if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"
+ghuwtvsmut$diffexpressed[ghuwtvsmut$log2FoldChange < -2 & ghuwtvsmut$pvalue < 0.01] <- "DOWN"
+p <- ggplot(data=ghuwtvsmut, aes(x=log2FoldChange, y=-log10(pvalue), col=diffexpressed)) + geom_point() + theme_minimal()
+p2 <- p + geom_vline(xintercept=c(-2, 2), col="red") + geom_hline(yintercept=-log10(0.01), col="red")
+p3 <- p2 + scale_color_manual(values=c("blue", "black", "red"))
+
+mycolors <- c("blue", "red", "black")
+names(mycolors) <- c("DOWN", "UP", "NO")
+p3 <- p2 + scale_colour_manual(values = mycolors)
+
+ghuwtvsmut$delabel <- NA
+ghuwtvsmut$delabel[ghuwtvsmut$diffexpressed != "NO"] <- ghuwtvsmut$gene_symbol[ghuwtvsmut$diffexpressed != "NO"]
+
+ggplot(data=ghuwtvsmut, aes(x=log2FoldChange, y=-log10(pvalue), col=ghuwtvsmut$diffexpressed, label=ghuwtvsmut$delabel)) +
+        geom_point() + 
+        ggtitle("GHu Wild Type vs GHu Mutant K802G, 7DPI") +
+        theme_minimal() +
+        geom_text_repel() +
+        scale_color_manual(values=c("violet", "black", "lightgreen")) +
+        geom_vline(xintercept=c(-2, 2), col="gray") +
+        geom_hline(yintercept=-log10(0.01), col="gray")
+
+cts_vst_i 
+
+redVar7 <- lfcShrink(dds_out_interaction,contrast=c("group","ghu_mut7","ghu_wt7"),alpha=0.01,type='normal')
+topVarGenes7 <- head(order(rowVars(assay(redVar7)),decreasing=T),25)
+top25Counts7 <-assay(redVar7)[topVarGenes7,]
+
+```
+
+# Hypothesis 2: Development of symptoms is unique to GHu Wild Type due to the amino acid present at 1EPol 802. Compare the 4dpi to see how the host is responding differently to viral infection for GHu WT and other strains.
+
+
+
+# Further hypothesis testing can be accomplished by examining the top genes rated for pvalue and log2foldchange and creating count plots of gene reads. 
+
+```{r}
+
+par(mfrow=c(1,1))
+d <- plotCounts(dds, gene = "Niben101Scf08618g01012", intgroup="group", normalized = T)
+d
+ggplot(d, aes(x=group, y=count, color=group))+
+  geom_point(position=position_jitter(w=0.1,h=0))+
+  geom_text_repel(aes(label=rownames(d)))+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  geom_beeswarm(cex=1)
+
+d <- plotCounts(dds, gene = "Niben101Scf01478g00014", intgroup=c("Time","Treatment"), normalized = T, returnData = T)
+d
+
+ggboxplot(d, x="Time", y="count", color="Treatment", palette = c('limegreen','blue','lightblue','red','magenta'), title="GFLV putative receptor normalized counts")+
+  theme(axis.text.x = element_text(angle = 0, vjust = 1, hjust=0.5, size=20))
+
+
+
+
+View(dds_out$group)
+```
+
+# Creation of full plots across all time points to assess transcriptome differences between treatment groups
+
+```{r}
+
+summary(results(dds_out, lfcThreshold = 1, contrast =c("group","ghu_mut7","ghu_wt7"),alpha=0.05))
+
+ghuwtvsmut4 <- data.frame(results(dds_out, contrast=c("group", "ghu_wt4", "ghu_mut4"),alpha=0.05))
+ghuwtvsmut7 <- data.frame(results(dds_out, contrast=c("group", "ghu_wt7", "ghu_mut7"),alpha=0.05))
+ghuwtvsmut12 <- data.frame(results(dds_out, contrast=c("group", "ghu_wt12", "ghu_mut12"),alpha=0.05))
+
+View(ghuwtvsmut7)
+
+with(ghuwtvsmut4, plot(log2FoldChange, -log10(padj), pch=20, main="GHu WT vs GHu Mut (4dpi)", xlim=c(-5,10),ylim=c(0,30)))+
+  with(subset(ghuwtvsmut4, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(ghuwtvsmut4, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(ghuwtvsmut4, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green")) 
+with(ghuwtvsmut7, plot(log2FoldChange, -log10(padj), pch=20, main="GHu WT vs GHu Mut (7dpi)", xlim=c(-5,10),ylim=c(0,40)))+
+  with(subset(ghuwtvsmut7, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(ghuwtvsmut7, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(ghuwtvsmut7, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green")) 
+with(ghuwtvsmut12, plot(log2FoldChange, -log10(padj), pch=20, main="GHu WT vs GHu Mut (12dpi)", xlim=c(-5,10),ylim=c(0,10)))+
+  with(subset(ghuwtvsmut12, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(ghuwtvsmut12, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(ghuwtvsmut12, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green")) 
+
+ggplot(data=ghuwtvsmut7, aes(x=log2FoldChange, y=-log10(pvalue), col=ghuwtvsmut$diffexpressed, label=ghuwtvsmut$delabel)) +
+        geom_point() + 
+        ggtitle("GHu Wild Type vs GHu Mutant K802G, 7DPI") +
+        theme_minimal() +
+        geom_text_repel() +
+        scale_color_manual(values=c("violet", "black", "lightgreen")) +
+        geom_vline(xintercept=c(-2, 2), col="gray") +
+        geom_hline(yintercept=-log10(0.01), col="gray")
+
+
+summary(results(dds_out, contrast =c("group","ghu_mut4","f13_wt4"),alpha=0.05))
+summary(results(dds_out, contrast =c("group","ghu_mut7","f13_wt7"),alpha=0.05))
+summary(results(dds_out, contrast =c("group","ghu_mut12","f13_wt12"),alpha=0.05))
+summary(results(dds_out_interaction, contrast =c("group","ghu_wt4","f13_mut4"),alpha=0.05))
+summary(results(dds_out_interaction, contrast =c("group","ghu_wt7","f13_mut7"),alpha=0.05))
+summary(results(dds_out_interaction, contrast =c("group","ghu_wt12","f13_mut12"),alpha=0.05))
+
+```
+
+# Hypothesis testing and additional volcano plots
+```{r}
+# F13 wild type and mutants 
+
+f13wtvsmut4 <- data.frame(results(dds_out, contrast=c("group", "f13_wt4", "f13_mut4"),alpha=0.05))
+f13wtvsmut7 <- data.frame(results(dds_out, contrast=c("group", "f13_wt7", "f13_mut7"),alpha=0.05))
+f13wtvsmut12 <- data.frame(results(dds_out, contrast=c("group", "f13_wt12", "f13_mut12"),alpha=0.05))
+
+# 4dpi 
+ggplot(data=f13wtvsmut4, aes(x=log2FoldChange, y=-log10(padj), col=f13wtvsmut4$diffexpressed, label=f13wtvsmut4$delabel)) + geom_point() + theme_minimal()
+with(f13wtvsmut4, plot(log2FoldChange, -log10(padj), pch=20, main="F13 WT vs F13 Mut (4dpi)", xlim=c(-5,6), ylim=c(0,30)))+
+  with(subset(f13wtvsmut4, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(f13wtvsmut4, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(f13wtvsmut4, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green"))
+
+# 7dpi
+ggplot(data=f13wtvsmut7, aes(x=log2FoldChange, y=-log10(padj), col=f13wtvsmut7$diffexpressed, label=f13wtvsmut7$delabel)) + geom_point() + theme_minimal()
+with(f13wtvsmut7, plot(log2FoldChange, -log10(padj), pch=20, main="F13 WT vs F13 Mut (7dpi)", xlim=c(-5,6), ylim=c(0,40)))+
+  with(subset(f13wtvsmut7, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(f13wtvsmut7, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(f13wtvsmut7, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green")) 
+
+# 12dpi
+
+ggplot(data=f13wtvsmut12, aes(x=log2FoldChange, y=-log10(padj), col=f13wtvsmut12$diffexpressed, label=f13wtvsmut12$delabel)) + geom_point() + theme_minimal()
+with(f13wtvsmut12, plot(log2FoldChange, -log10(padj), pch=20, main="F13 WT vs F13 Mut (12dpi)", xlim=c(-5,6), ylim=c(0,10)))+
+  with(subset(f13wtvsmut12, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(f13wtvsmut12, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(f13wtvsmut12, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green")) 
+```
+
+
+
+```{r}
+# GHu WT vs F13 WT 
+ghuwtvsf13wt4 <- data.frame(results(dds_out, contrast=c("group", "ghu_wt4","f13_wt4"),alpha=0.05))
+ghuwtvsf13wt7 <- data.frame(results(dds_out, contrast=c("group", "ghu_wt7","f13_wt7"),alpha=0.05))
+ghuwtvsf13wt12 <- data.frame(results(dds_out, contrast=c("group", "ghu_wt12","f13_wt12"),alpha=0.05))
+
+# 4dpi 
+ggplot(data=ghuwtvsf13wt4, aes(x=log2FoldChange, y=-log10(padj), col=ghuwtvsf13wt4$diffexpressed, label=ghuwtvsf13wt4$delabel)) + geom_point() + theme_minimal()
+with(ghuwtvsf13wt4, plot(log2FoldChange, -log10(padj), pch=20, main="GHu WT vs F13 WT (4dpi)", xlim=c(-5,6), ylim=c(0,30)))+
+  with(subset(ghuwtvsf13wt4, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(ghuwtvsf13wt4, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(ghuwtvsf13wt4, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green")) 
+# 7dpi
+ggplot(data=ghuwtvsf13wt7, aes(x=log2FoldChange, y=-log10(padj), col=ghuwtvsf13wt7$diffexpressed, label=ghuwtvsf13wt7$delabel)) + geom_point() + theme_minimal()
+with(ghuwtvsf13wt7, plot(log2FoldChange, -log10(padj), pch=20, main="GHu WT vs F13 WT (7dpi)", xlim=c(-5,6), ylim=c(0,40)))+
+  with(subset(ghuwtvsf13wt7, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(ghuwtvsf13wt7, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(ghuwtvsf13wt7, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green")) 
+# 12dpi
+ggplot(data=ghuwtvsf13wt12, aes(x=log2FoldChange, y=-log10(padj), col=ghuwtvsf13wt12$diffexpressed, label=ghuwtvsf13wt12$delabel)) + geom_point() + theme_minimal()
+with(ghuwtvsf13wt12, plot(log2FoldChange, -log10(padj), pch=20, main="GHu WT vs F13 WT (12dpi)", xlim=c(-5,6), ylim=c(0,10)))+
+  with(subset(ghuwtvsf13wt12, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(ghuwtvsf13wt12, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(ghuwtvsf13wt12, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green")) 
+```
+```{r}
+# GHu wild type and mutant 
+# 4dpi 
+ggplot(data=ghuwtvsmut4, aes(x=log2FoldChange, y=-log10(padj), col=ghuwtvsmut4$diffexpressed, label=ghuwtvsmut4$delabel)) + 
+    geom_point() + 
+    theme_minimal()
+with(ghuwtvsmut4, plot(log2FoldChange, -log10(padj), pch=20, main="GHu WT vs GHu Mut (4dpi)", xlim=c(-5,6), ylim=c(0,30)))+
+  with(subset(ghuwtvsmut4, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(ghuwtvsmut4, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(ghuwtvsmut4, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green")) 
+# 7dpi
+ggplot(data=ghuwtvsmut7, aes(x=log2FoldChange, y=-log10(padj), col=ghuwtvsmut7$diffexpressed, label=ghuwtvsmut7$delabel)) + 
+    geom_point() + 
+    theme_minimal()
+with(ghuwtvsmut7, plot(log2FoldChange, -log10(padj), pch=20, main="GHu WT vs GHu Mut (7dpi)", xlim=c(-5,6), ylim=c(0,40)))+
+  with(subset(ghuwtvsmut7, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(ghuwtvsmut7, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(ghuwtvsmut7, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green")) 
+# 12dpi
+ggplot(data=ghuwtvsmut12, aes(x=log2FoldChange, y=-log10(padj), col=ghuwtvsmut12$diffexpressed, label=ghuwtvsmut12$delabel)) + 
+    geom_point() + 
+    theme_minimal()
+with(ghuwtvsmut12, plot(log2FoldChange, -log10(padj), pch=20, main="GHu WT vs GHu Mut (12dpi)", xlim=c(-5,6), ylim=c(0,10)))+
+  with(subset(ghuwtvsmut12, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(ghuwtvsmut12, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(ghuwtvsmut12, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green")) 
+
+```
+
+
+```{r}
+#GHu WT vs F13 Mut
+ghuwtvsf13mut4 <- data.frame(results(dds_out, contrast=c("group", "ghu_wt4","f13_mut4"),alpha=0.05))
+ghuwtvsf13mut7 <- data.frame(results(dds_out, contrast=c("group", "ghu_wt7","f13_mut7"),alpha=0.05))
+ghuwtvsf13mut12 <- data.frame(results(dds_out, contrast=c("group", "ghu_wt12","f13_mut12"),alpha=0.05))
+
+# 4dpi 
+with(ghuwtvsf13mut4, plot(log2FoldChange, -log10(padj), pch=20, main="GHu WT vs F13 Mut (4dpi)", xlim=c(-7,6), ylim=c(0,40)))+
+  with(subset(ghuwtvsf13mut4, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(ghuwtvsf13mut4, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(ghuwtvsf13mut4, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green")) 
+# 7dpi
+with(ghuwtvsf13mut7, plot(log2FoldChange, -log10(padj), pch=20, main="GHu WT vs F13 Mut (7dpi)", xlim=c(-7,6), ylim=c(0,40)))+
+  with(subset(ghuwtvsf13mut7, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(ghuwtvsf13mut7, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(ghuwtvsf13mut7, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green")) 
+# 12dpi
+with(ghuwtvsf13mut12, plot(log2FoldChange, -log10(padj), pch=20, main="GHu WT vs F13 Mut (12dpi)", xlim=c(-7,6), ylim=c(0,20)))+
+  with(subset(ghuwtvsf13mut12, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(ghuwtvsf13mut12, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(ghuwtvsf13mut12, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green")) 
+```
+
+```{r}
+#GHu WT vs Control
+ghuwtvscontrol4 <- data.frame(results(dds_out, contrast=c("group", "ghu_wt4","Control4"),alpha=0.05))
+ghuwtvscontrol7 <- data.frame(results(dds_out, contrast=c("group", "ghu_wt7","Control7"),alpha=0.05))
+ghuwtvscontrol12 <- data.frame(results(dds_out, contrast=c("group", "ghu_wt12","Control12"),alpha=0.05))
+
+# 4dpi 
+with(ghuwtvscontrol4, plot(log2FoldChange, -log10(padj), pch=20, main="GHu WT vs Control (4dpi)", xlim=c(-7,8), ylim=c(0,40)))+
+  with(subset(ghuwtvscontrol4, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(ghuwtvscontrol4, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(ghuwtvscontrol4, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green")) 
+# 7dpi
+with(ghuwtvscontrol7, plot(log2FoldChange, -log10(padj), pch=20, main="GHu WT vs Control (7dpi)", xlim=c(-7,8), ylim=c(0,40)))+
+  with(subset(ghuwtvscontrol7, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(ghuwtvscontrol7, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(ghuwtvscontrol7, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green")) 
+# 12dpi
+with(ghuwtvscontrol12, plot(log2FoldChange, -log10(padj), pch=20, main="GHu WT vs Control (12dpi)", xlim=c(-7,8), ylim=c(0,20)))+
+  with(subset(ghuwtvscontrol12, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(ghuwtvscontrol12, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(ghuwtvscontrol12, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green"))
+
+#F13 WT vs Control
+f13wtvscontrol4 <- data.frame(results(dds_out, contrast=c("group", "f13_wt4","Control4"),alpha=0.05))
+f13wtvscontrol7 <- data.frame(results(dds_out, contrast=c("group", "f13_wt7","Control7"),alpha=0.05))
+f13wtvscontrol12 <- data.frame(results(dds_out, contrast=c("group", "f13_wt12","Control12"),alpha=0.05))
+# 4dpi 
+with(f13wtvscontrol4, plot(log2FoldChange, -log10(padj), pch=20, main="F13 WT vs Control (4dpi)", xlim=c(-7,8), ylim=c(0,40)))+
+  with(subset(f13wtvscontrol4, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(f13wtvscontrol4, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(f13wtvscontrol4, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green")) 
+# 7dpi
+with(f13wtvscontrol7, plot(log2FoldChange, -log10(padj), pch=20, main="F13 WT vs Control (7dpi)", xlim=c(-7,8), ylim=c(0,40)))+
+  with(subset(f13wtvscontrol7, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(f13wtvscontrol7, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(f13wtvscontrol7, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green")) 
+# 12dpi
+with(f13wtvscontrol12, plot(log2FoldChange, -log10(padj), pch=20, main="F13 WT vs Control (12dpi)", xlim=c(-7,8), ylim=c(0,20)))+
+  with(subset(f13wtvscontrol12, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(f13wtvscontrol12, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(f13wtvscontrol12, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green"))
+
+
+#F13 Mut vs Control
+f13mutvscontrol4 <- data.frame(results(dds_out, contrast=c("group", "f13_mut4","Control4"),alpha=0.05))
+f13mutvscontrol7 <- data.frame(results(dds_out, contrast=c("group", "f13_mut7","Control7"),alpha=0.05))
+f13mutvscontrol12 <- data.frame(results(dds_out, contrast=c("group", "f13_mut12","Control12"),alpha=0.05))
+# 4dpi 
+with(f13mutvscontrol4, plot(log2FoldChange, -log10(padj), pch=20, main="F13 Mutant vs Control (4dpi)", xlim=c(-7,8), ylim=c(0,40)))+
+  with(subset(f13mutvscontrol4, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(f13mutvscontrol4, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(f13mutvscontrol4, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green")) 
+# 7dpi
+with(f13mutvscontrol7, plot(log2FoldChange, -log10(padj), pch=20, main="F13 Mutant vs Control (7dpi)", xlim=c(-7,8), ylim=c(0,40)))+
+  with(subset(f13mutvscontrol7, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(f13mutvscontrol7, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(f13mutvscontrol7, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green")) 
+# 12dpi
+with(f13mutvscontrol12, plot(log2FoldChange, -log10(padj), pch=20, main="F13 Mutant vs Control (12dpi)", xlim=c(-7,8), ylim=c(0,20)))+
+  with(subset(f13mutvscontrol12, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="light blue"))+
+  with(subset(f13mutvscontrol12, abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="gray"))+
+  with(subset(f13mutvscontrol12, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(padj), pch=20, col="light green"))
+
+```
+# Calling specific gene plot counts
+```{r}
+plotCounts(dds_out, "Niben101Scf01062g08013", intgroup="group", normalized = F)
+```
+
+# Gene set enrichment analysis
+
+```{r}
+library(clusterProfiler)
+library(gprofiler2)
+#Gff2GeneTable("Niben1.gff")
+read.gmt("GO_Niben3.gmt")
+upload_GMT_file("GO_Niben3.gmt")
+#Now Niben can be used as the organism for analysis
+# inputs refered to as temporarily 'gp__HTvx_rYJC_ffE' or 'gp__3CN5_Ndmp_GXo' or 'gp__wJk4_MmmP_kXQ'
+
+read.gmt("GO_Niben3p.gmt")
+upload_GMT_file("realGO_Niben3p.gmt")
+# input file for proteins can be used as 'gp__vfEv_AX8y_NVs'
+
+ghuwtvsmut4_enrich <- noquote(rownames(subset(ghuwtvsmut4, padj<0.05 & abs(log2FoldChange)>1)))
+ghuwtvsmut4_result <-  gost(ghuwtvsmut4_enrich, organism = 'gp__HTvx_rYJC_ffE', significant = TRUE)
+dataGO4 <- data.frame("condition" = "GHu WT vs GHu Mutant 4dpi", "GOghu" = ghuwtvsmut4_result$result$term_id,
+"name" = ghuwtvsmut4_result$result$term_name, "ratio" = ghuwtvsmut4_result$result$term_size, "P.value" = ghuwtvsmut4_result$result$p_value)
+
+ggplot(data = dataGO4, aes(x = "GHu WT vs GHu Mutant 4dpi", y = name, 
+                        color = P.value, size = ratio)) + 
+  geom_point() +
+  scale_color_gradient(low = "red", high = "blue") +
+  theme_bw() + 
+  ylab("") + 
+  xlab("") + 
+  ggtitle("GO enrichment analysis")
+
+ghuwtvsmut7_enrich <- noquote(rownames(subset(ghuwtvsmut7, padj<0.05 & abs(log2FoldChange)>1)))
+ghuwtvsmut7_enrich
+ghuwtvsmut7_result <-  gost(ghuwtvsmut7_enrich, organism = 'gp__HTvx_rYJC_ffE', significant = TRUE)
+dataGO7 <- data.frame("condition" = "GHu WT vs GHu Mutant 7dpi", "GOghu" = ghuwtvsmut7_result$result$term_id,
+"name" = ghuwtvsmut7_result$result$term_name, "ratio" = ghuwtvsmut7_result$result$term_size, "P.value" = ghuwtvsmut7_result$result$p_value)
+
+ggplot(data = dataGO7, aes(x = "GHu WT vs GHu Mutant 7dpi", y = name, 
+                        color = P.value, size = ratio)) + 
+  geom_point() +
+  scale_color_gradient(low = "red", high = "blue") +
+  theme_bw() + 
+  ylab("") + 
+  xlab("") + 
+  ggtitle("GO enrichment analysis")
+
+# ghuwtvsmut12_enrich <- noquote(rownames(subset(ghuwtvsmut12, padj<0.05 & abs(log2FoldChange)>1)))
+# comparison of 12dpi does not return any gene set enrichment significance
+
+f13wtvsmut4_enrich <- noquote(rownames(subset(f13wtvsmut4, padj<0.05 & abs(log2FoldChange)>1)))
+f13wtvsmut4_enrich
+f13wtvsmut4_result <-  gost(f13wtvsmut4_enrich, organism = 'gp__HTvx_rYJC_ffE', significant = TRUE)
+dataGO4_F13 <- data.frame("condition" = "F13 WT vs F13 Mutant 4dpi","GOghu" = f13wtvsmut4_result$result$term_id,
+"name" = f13wtvsmut4_result$result$term_name, "ratio" = f13wtvsmut4_result$result$term_size, "P.value" = f13wtvsmut4_result$result$p_value)
+
+ggplot(data = dataGO4_F13, aes(x = "F13 WT vs F13 Mutant 4dpi", y = name, 
+                        color = P.value, size = ratio)) + 
+  geom_point() +
+  scale_color_gradient(low = "red", high = "blue") +
+  theme_bw() + 
+  ylab("") + 
+  xlab("") + 
+  ggtitle("GO enrichment analysis")
+
+ghuwtvsf13wt7_enrich <- noquote(rownames(subset(ghuwtvsf13wt7, padj<0.05 & abs(log2FoldChange)>1)))
+ghuwtvsf13wt7_enrich
+ghuwtvsf13wt7_result <-  gost(ghuwtvsf13wt7_enrich, organism = 'gp__HTvx_rYJC_ffE', significant = TRUE)
+dataGO7_GHu_F13 <- data.frame("condition" = "GHu WT vs F13 WT 7dpi", "GOghu" = ghuwtvsf13wt7_result$result$term_id,
+"name" = ghuwtvsf13wt7_result$result$term_name, "ratio" = ghuwtvsf13wt7_result$result$term_size, "P.value" = ghuwtvsf13wt7_result$result$p_value)
+
+ggplot(data = dataGO7_GHu_F13, aes(x = "GHu WT vs F13 WT 7dpi", y = name, 
+                        color = P.value, size = ratio)) + 
+  geom_point() +
+  scale_color_gradient(low = "red", high = "blue") +
+  theme_bw() + 
+  ylab("") + 
+  xlab("") + 
+  ggtitle("GO enrichment analysis")
+
+# Overrepresentation of gene ontology for GHu WT and controls - returned insiginficant results for 4 and 12 dpi, but at 7dpi there were several ontologies found
+
+#controlghu4 <- data.frame(results(dds_out, contrast=c("group", "ghu_wt4", "Control4"),alpha=0.05))
+controlghu7 <- data.frame(results(dds_out, contrast=c("group", "ghu_wt7", "Control7"),alpha=0.05))
+#controlghu12 <- data.frame(results(dds_out, contrast=c("group", "ghu_wt12", "Control12"),alpha=0.05))
+
+#controlghu4_enrich <- noquote(rownames(subset(controlghu4, padj<0.05 & abs(log2FoldChange)>1)))
+controlghu7_enrich <- noquote(rownames(subset(controlghu7, padj<0.05 & abs(log2FoldChange)>1)))
+#controlghu12_enrich <- noquote(rownames(subset(controlghu12, padj<0.05 & abs(log2FoldChange)>1)))
+
+#controlghu4_result <-  gost(controlghu4_enrich, organism = 'gp__3CN5_Ndmp_GXo', significant = TRUE)
+controlghu7_result <-  gost(controlghu7_enrich, organism = 'gp__3CN5_Ndmp_GXo', significant = TRUE)
+#controlghu12_result <-  gost(controlghu12_enrich, organism = 'gp__3CN5_Ndmp_GXo', significant = TRUE)
+
+#dataGO4_controlghu <- data.frame("condition" = "Control vs GHu WT 4dpi", "GOghu" = controlghu4_result$result$term_id,
+#"name" = controlghu4_result$result$term_name, "ratio" = controlghu4_result$result$term_size, "P.value" = controlghu4_result$result$p_value)
+dataGO7_controlghu <- data.frame("condition" = "Control vs GHu WT 7dpi", "GOghu" = controlghu7_result$result$term_id,
+"name" = controlghu7_result$result$term_name, "ratio" = controlghu7_result$result$term_size, "P.value" = controlghu7_result$result$p_value)
+#dataGO12_controlghu <- data.frame("condition" = "Control vs GHu WT 12dpi", "GOghu" = controlghu12_result$result$term_id,
+#"name" = controlghu12_result$result$term_name, "ratio" = controlghu12_result$result$term_size, "P.value" = # controlghu12_result$result$p_value)
+
+ggplot(data = dataGO7_controlghu, aes(x = condition, y = name, 
+                        color = P.value, size = ratio)) + 
+  geom_point() +
+  scale_color_gradient(low = "red", high = "blue") +
+  theme_bw() + 
+  ylab("") + 
+  xlab("") + 
+  ggtitle("") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+controlf137 <- data.frame(results(dds_out, contrast=c("group", "f13_wt7", "Control7"),alpha=0.05))
+controlf137_enrich <- noquote(rownames(subset(controlf137, padj<0.05 & abs(log2FoldChange)>1)))
+controlf137_result <-  gost(controlf137_enrich, organism = 'gp__3CN5_Ndmp_GXo', significant = TRUE)
+dataGO7_controlf13 <- data.frame("condition" = "Control vs F13 WT 7dpi", "GOghu" = controlf137_result$result$term_id,
+"name" = controlf137_result$result$term_name, "ratio" = controlf137_result$result$term_size, "P.value" = controlf137_result$result$p_value)
+
+ggplot(data = dataGO7_controlf13, aes(x = condition, y = name, 
+                        color = P.value, size = ratio)) + 
+  geom_point() +
+  scale_color_gradient(low = "red", high = "blue") +
+  theme_bw() + 
+  ylab("") + 
+  xlab("") + 
+  ggtitle("") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+```
+
+```{r}
+
+exp_wide_ontology <- list(dataGO7_GHu_F13, dataGO7, dataGO4_F13, dataGO7_controlghu, dataGO7_controlf13)
+library(reshape)
+GO_plot_all <- Reduce(function(x,y) merge(x,y, all=TRUE), exp_wide_ontology, accumulate=FALSE)
+
+GO_plot_all$condition <- factor(GO_plot_all$condition, levels = c("F13 WT vs F13 Mutant 4dpi", "Control vs F13 WT 7dpi", "Control vs GHu WT 7dpi", "GHu WT vs F13 WT 7dpi", "GHu WT vs GHu Mutant 7dpi"))
+ggplot(data = GO_plot_all, aes(x = condition, y = name, 
+                        color = P.value, size = ratio)) + 
+  geom_point() +
+  scale_color_gradient(low = "red", high = "blue") +
+  theme_bw() + 
+  ylab("") + 
+  xlab("") + 
+  ggtitle("") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1), text = element_text(size=15))
+
+# cleaning up a little
+
+exp_wide_ontology <- list(dataGO7_GHu_F13, dataGO7, dataGO7_controlghu, dataGO7_controlf13)
+library(reshape)
+GO_plot_all <- Reduce(function(x,y) merge(x,y, all=TRUE), exp_wide_ontology, accumulate=FALSE)
+
+GO_plot_all$condition <- factor(GO_plot_all$condition, levels = c("Control vs F13 WT 7dpi", "Control vs GHu WT 7dpi", "GHu WT vs F13 WT 7dpi", "GHu WT vs GHu Mutant 7dpi"))
+ggplot(data = GO_plot_all, aes(x = condition, y = name, 
+                        color = P.value, size = ratio)) + 
+  geom_point() +
+  scale_color_gradient(low = "red", high = "blue") +
+  theme_bw() + 
+  ylab("") + 
+  xlab("") + 
+  ggtitle("") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1), text = element_text(size=15))
+
+
+
+
+
+
+
+fileConn <- file ("ghus4.txt")
+writeLines(ghuwtvsmut4_enrich, fileConn)
+close(fileConn)
+
+fileConn <- file ("ghus7.txt")
+writeLines(ghuwtvsmut7_enrich, fileConn)
+close(fileConn)
+
+fileConn <- file ("ghus12.txt")
+writeLines(ghuwtvsmut12_enrich, fileConn)
+close(fileConn)
+```
+
+```{r}
+# Volcano plot comparisons (identity between DEGs of different plots)
+
+# DEGs between GHu WT compared against GHu mutant and F13 wild type
+compare7ghu <- subset(ghuwtvsmut7, padj<0.05 & abs(log2FoldChange)>1) #2707 genes
+compare7ghuwt_f13wt <- subset(ghuwtvsf13wt7, padj<0.05 & abs(log2FoldChange)>1) #2623 genes
+x <- c(rownames(compare7ghu),rownames(compare7ghuwt_f13wt))
+count(x[duplicated(x)]) #1692 genes overlapping
+100*1692/2707
+# 62.5% of host genes are differentially expressed the same way between comparisons of GHu WT vs GHu Mutant and GHu WT and F13 WT.
+
+
+compare4f13 <- subset(f13wtvsmut4, padj<0.05 & abs(log2FoldChange)>1)
+x2 <- c(rownames(compare4f13),'Niben101Scf00130g01022','Niben101Scf11178g02001','Niben101Scf06910g05004','Niben101Scf01319g04016')
+count(x2[duplicated(x2)])
+compare12f13 <- subset(f13wtvsmut12, padj<0.05 & abs(log2FoldChange)>1)
+# no genes between protein expression and transcriptomics for these comparisons
+
+compare_enrich <- noquote(x[duplicated(x)])
+compare_result <-  gost(compare_enrich, organism = 'gp__HTvx_rYJC_ffE', significant = TRUE)
+dataGO_compare <- data.frame("condition" = "Common DEGs","GOghu" = compare_result$result$term_id,
+"name" = compare_result$result$term_name, "ratio" = compare_result$result$term_size, "P.value" = compare_result$result$p_value)
+
+ggplot(data = dataGO_compare, aes(x = "Common DEGs 7dpi", y = name, 
+                        color = P.value, size = ratio)) + 
+  geom_point() +
+  scale_color_gradient(low = "red", high = "blue") +
+  theme_bw() + 
+  ylab("") + 
+  xlab("") + 
+  ggtitle("GO enrichment analysis")
+
+
+
+
+
+
+
+
+
+```
+
+# Network analysis with WGCNA
+``{r}
+datExpr <- datExpr0
+# Re-clustering samples 
+collectGarbage()
+sampleTree2 = hclust(dist(datExpr), method = "average")
+traitColors = numbers2colors(datTraits[,c(2,4)], signed = FALSE, colors = blueWhiteRed(100))
+plotDendroAndColors(sampleTree2, traitColors,
+                    groupLabels = c("Time post-treatment","Treatment"),
+                    sub="", xlab="", cex.lab = 1,main = "",
+                    cex.axis = 0.7, cex.main = 1, cex.dendroLabels = 1, cex.colorLabels = 1)
+save(datExpr, datTraits, file = "unsupervised WGCNA.RData")
+# One-step network construction and module detection
+net = blockwiseModules(datExpr, power = 12, networkType = "signed",
+                       TOMType = "signed", minModuleSize = 30,
+                       reassignThreshold = 0, mergeCutHeight = 0.25,
+                       numericLabels = TRUE, pamRespectsDendro = FALSE,
+                       saveTOMs = TRUE,
+                       saveTOMFileBase = "supervised_norm_count_TOM",
+                       verbose = 3)
+table(net$colors)
+mergedColors = labels2colors(net$colors)
+table(mergedColors)
+moduleLabels = net$colors
+moduleColors = labels2colors(net$colors)
+MEs = net$MEs;
+head(MEs)
+geneTree = net$dendrograms[[1]];
+save(MEs, moduleLabels, moduleColors, geneTree,
+     file = "unsupervise-02-networkConstruction-auto_n50=.RData")
+#Check eigengenes
+MEs0 = moduleEigengenes(datExpr, moduleColors)$eigengenes
+MEs = orderMEs(MEs0)
+modNames = substring(names(MEs), 3)
+view(modNames)
+nGenes = ncol(datExpr)
+nSamples = nrow(datExpr)
+view(MEs)
+moduleTraitCor = cor(MEs, datTraits, use = "p")
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamples)
+view(moduleTraitCor)
+# Will display correlations and their p-values
+textMatrix = paste(signif(moduleTraitCor, 2), "\n(",
+                   signif(moduleTraitPvalue, 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor)
+# Module_trait relationships
+tiff('Module_trait relationships.tiff', units="in", width=4, height=6, res=1000, compression = 'lzw')
+par(mar = c(4,6, 4, 1))
+labeledHeatmap(Matrix = moduleTraitCor,
+               xLabels = c("Time","Treatment", "Rep"),
+               ySymbols = names(MEs),
+               yLabels = names(MEs),
+               colorLabels = FALSE,
+               colors =  blueWhiteRed(100),
+               setStdMargins = FALSE,
+               cex.text = 0.5,
+               textMatrix = textMatrix,
+               zlim = c(-1,1),
+               main = paste("Module-trait relationships"),
+               cex.lab.x = 0.7,
+               cex.lab.y = 0.5,
+               xLabelsAngle = 30,
+               xLabelsPosition = "bottom",
+               xLabelsAdj = 0.7)
+dev.off()
+``
+# For treatment*time, with low gene count filtering:
+dds_interaction <- DESeqDataSetFromMatrix(countData = cts, colData = coldata, design = ~ group)
+keep_i <- rowSums(counts(dds_interaction)) >= (ncol(cts))
+dds_i <- dds[keep_i,]
+dds_i_out <- DESeq(dds_i)
+# resultsNames(dds_i_out) # [1] Intercept [2] F13Mut vs Control [3] F13WT vs Control [4] GHuMut vs Control [5] GHuWT vs Control [6] Time
+
+vsd_interaction <- vst(dds_i_out,blind=FALSE)
+cts_vst_i <- assay(vsd_interaction)
+cts_vst_i <- as.data.frame(t(cts_vst_i))
+datExpr0 <- as.matrix(cts_vst_i)
+
+plotPCA(vsd_interaction, intgroup = "Symptoms", returnData=F)
+
+# Modeling read counts through a negative binomial
+``{r}
+dds.norm <- estimateSizeFactors(dds)
+sizeFactors(dds.norm)
+all(round(estimSf(dds),6) == round(sizeFactors(dds.norm), 6))
+dds.disp <- estimateDispersions(dds_out)
+
+boxplot((counts(dds.norm)+1), cex.axis=0.7, 
+        las=1, xlab="log2(counts)", horizontal=TRUE, main="Raw counts")
+boxplot(log2(counts(dds.norm, normalized=TRUE)+epsilon), cex.axis=0.7, 
+        las=1, xlab="log2(normalized counts)", horizontal=TRUE, main="Normalized counts") 
+boxplot(log2(counts(dds.norm, normalized=TRUE)),xlab="log2(normalized counts)", cex.lab=0.7, panel.first=grid())
+
+``
+## Computing mean and variance
+norm.counts <- counts(dds.norm, normalized=TRUE)
+mean.counts <- rowMeans(norm.counts)
+variance.counts <- apply(norm.counts, 1, var)
+
+## sum(mean.counts==0) # Number of completely undetected genes
+norm.counts.stats <- data.frame(
+  min=apply(norm.counts, 2, min),
+  mean=apply(norm.counts, 2, mean),
+  median=apply(norm.counts, 2, median),
+  max=apply(norm.counts, 2, max),
+  zeros=apply(norm.counts==0, 2, sum),
+  percent.zeros=100*apply(norm.counts==0, 2, sum)/nrow(norm.counts),
+  perc05=apply(norm.counts, 2, quantile, 0.05),
+  perc10=apply(norm.counts, 2, quantile, 0.10),
+  perc90=apply(norm.counts, 2, quantile, 0.90),
+  perc95=apply(norm.counts, 2, quantile, 0.95)
+)
+kable(norm.counts.stats)
+mean.var.col <- densCols(x=log2(mean.counts), y=log2(variance.counts))
+plot(x=log2(mean.counts), y=log2(variance.counts), pch=16, cex=0.5, 
+     col=mean.var.col, main="Mean-variance relationship",
+     xlab="Mean log2(normalized counts) per gene",
+     ylab="Variance of log2(normalized counts)",
+     panel.first = grid()) +
+abline(a=0, b=1, col="brown")
+``
+``{r}
